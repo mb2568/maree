@@ -127,15 +127,27 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .chip{font-size:.66rem;padding:.1rem .4rem;border-radius:6px;background:rgba(255,255,255,.08);color:var(--muted);white-space:nowrap}
 .notif-list li.off{opacity:.6;padding:.35rem 0}
 /* markets */
-.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.6rem}
-.tiles.fx{margin-top:.6rem}
-.tile{display:block;padding:.65rem .75rem;border-radius:14px;background:rgba(4,20,34,.3);border:1px solid var(--line);color:var(--text)}
+.markets{display:flex;flex-direction:column}
+#mktView,#holdView{flex:1;display:flex;flex-direction:column;gap:.6rem;min-height:0}
+#mktTiles{flex:2;min-height:0}
+#fxTiles{flex:1;min-height:0}
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:.6rem;height:100%}
+.tiles.fx{margin-top:0}
+.tiles .tile:nth-child(-n+3){grid-column:span 2}
+.tiles .tile:nth-child(n+4){grid-column:span 3}
+.tiles.fx .tile{grid-column:span 3}
+.tile{display:flex;flex-direction:column;height:100%;min-height:108px;padding:.75rem .8rem;border-radius:14px;background:rgba(4,20,34,.3);border:1px solid var(--line);color:var(--text)}
 .tile:hover{text-decoration:none;border-color:rgba(124,196,232,.5)}
 .tile .nm{font-size:.76rem;color:var(--muted)}
-.tile .px{font-size:1.08rem;font-weight:600;margin:.1rem 0;font-variant-numeric:tabular-nums}
+.tile .px{font-size:1.15rem;font-weight:600;margin:.15rem 0;font-variant-numeric:tabular-nums}
 .tile .ch{font-size:.78rem;font-variant-numeric:tabular-nums}
 .up{color:var(--up)}.down{color:var(--down)}
-.spark{display:block;width:100%;height:26px;margin-top:.25rem}
+.spark{display:block;width:100%;flex:1;min-height:28px;height:auto;margin-top:.35rem}
+@media (max-width:600px){
+  .tile{min-height:96px;padding:.55rem .55rem}
+  .tile .px{font-size:1.02rem}
+  .tile .nm{font-size:.7rem}
+}
 /* news */
 .news-list li{padding:.55rem 0;border-top:1px solid var(--line)}
 .news-list li:first-child{border-top:0}
@@ -153,10 +165,18 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .cardsum b{font-size:.95rem}
 .bar{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:.5rem}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,#5aa9d6,#a9dcf2);border-radius:99px;transition:width .3s}
-.credit{display:flex;align-items:center;gap:.6rem;padding:.38rem 0;font-size:.86rem}
+.credit{display:flex;align-items:baseline;gap:.55rem;padding:.42rem 0;border-top:1px solid var(--line);font-size:.86rem}
+.credit:first-of-type,.credits-list .credit:first-child{border-top:0}
 .credit .cn{flex:1;min-width:0}
 .credit .cn small{display:block;color:var(--muted);font-size:.72rem}
-.credit .amt{font-variant-numeric:tabular-nums;color:var(--muted)}
+.credit .amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.credit .when{font-size:.74rem;color:var(--muted);white-space:nowrap}
+.credits-all{margin-top:.45rem}
+.credits-all summary{cursor:pointer;font-size:.78rem;color:var(--muted)}
+.credits-all .credit{font-size:.82rem}
+.suggest{list-style:none;margin:.4rem 0 0;padding:0;display:grid;gap:.4rem}
+.suggest li{font-size:.86rem;line-height:1.35;padding-left:.1rem}
+.suggest li::before{content:"→ ";color:var(--accent)}
 .toggle{position:relative;width:40px;height:22px;flex:none;border-radius:99px;border:1px solid var(--line);background:rgba(4,20,34,.4);cursor:pointer;transition:.15s}
 .toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#9fbcd1;transition:.15s}
 .toggle[aria-checked=true]{background:#3d7ea6;border-color:transparent}
@@ -225,7 +245,7 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .ntag{display:inline-block;font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;padding:.05rem .35rem;border-radius:5px;background:rgba(255,255,255,.1);color:var(--muted);margin-right:.35rem;vertical-align:.1em}
 .ntag.ex{background:rgba(232,186,124,.22);color:#f3d29d}
 .ndek{font-size:.8rem;color:var(--muted);margin-top:.15rem;line-height:1.35}
-#holdNews{max-height:520px;overflow-y:auto}
+#holdNews{flex:1;min-height:0;max-height:none;overflow-y:auto}
 
 .wx-place{text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer}
 .wx-src{opacity:.7;font-size:.9em}

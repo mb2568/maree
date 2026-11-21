@@ -507,41 +507,69 @@ async function loadCredits() {
   renderCredits();
 }
 const money = (v, d = 0) => v == null ? "—" : "$" + nf(v, d);
+function periodEndFromLabel(label) {
+  const y = +todayISO().slice(0, 4);
+  const mon = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const parseMon = (s) => mon[(s || "").slice(0, 3).toLowerCase()];
+  const lab = (label || "").trim();
+  const parts = lab.split(/[–-]/).map((s) => s.trim());
+  if (parts.length === 2 && parseMon(parts[0]) && parseMon(parts[1])) return { date: new Date(y, parseMon(parts[1]), 0), kind: "ends" };
+  if (parseMon(lab) && !/\d/.test(lab)) return { date: new Date(y, parseMon(lab), 0), kind: "resets" };
+  if (/^\d{4}$/.test(lab)) return { date: new Date(+lab, 11, 31), kind: "ends" };
+  return null;
+}
+function creditDeadline(c, catalog) {
+  const fromLabel = periodEndFromLabel(c.period_label);
+  if (fromLabel) return fromLabel;
+  if (!catalog) return null;
+  const [y, m] = todayISO().split("-").map(Number);
+  if (catalog.period === "monthly") return { date: new Date(y, m, 0), kind: "resets" };
+  if (catalog.period === "quarterly") return { date: new Date(y, Math.ceil(m / 3) * 3, 0), kind: "ends" };
+  if (catalog.period === "semiannual") return { date: new Date(y, m <= 6 ? 6 : 12, 0), kind: "ends" };
+  return { date: new Date(y, 11, 31), kind: "ends" };
+}
+function fmtDeadline(dl) {
+  if (!dl) return "";
+  const opts = { month: "short", day: "numeric" };
+  if (dl.date.getFullYear() !== +todayISO().slice(0, 4)) opts.year = "numeric";
+  return `${dl.kind} ${dl.date.toLocaleDateString("en-US", opts)}`;
+}
+function moneyLeft(v) { return money(v, v % 1 ? 2 : 0) + " left"; }
 function renderCredits() {
   const el = $("#moneyBody");
   const amex = digest?.amex || null;
-  const tracked = Object.fromEntries((amex?.credits || []).filter((c) => !EXCLUDED_CREDITS.has(c.id)).map((c) => [c.id, c]));
   const pill = $("#moneyCard .pill");
   if (pill) { pill.textContent = amex ? "Amex · " + new Date(amex.as_of).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" : "manual until Amex is connected"; pill.classList.toggle("warn", !amex); }
-  let html = renderAccounts(amex);
-  if (credits.length) {
-    const [y, m, d] = todayISO().split("-").map(Number); const daysLeft = new Date(y, m, 0).getDate() - d;
-    html += `<div class="money-sec"><h3>Credits</h3><div class="small muted">${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month</div></div>`;
-    for (const card of ["Platinum", "Gold"]) {
-      const list = credits.filter((c) => c.card === card);
-      const state = (c) => {
-        const t = tracked[c.id]; const amt = creditAmount(c);
-        if (c.status && c.status !== "active") return { amt, left: null, used: 0, off: true, src: "amex", label: c.status === "locked" ? "Not unlocked" : "Not enrolled" };
-        if (t && t.left != null) return { amt, left: t.left, used: Math.max(0, (t.amount ?? amt) - t.left), src: "amex", label: t.note };
-        if (t && t.note) return { amt, left: null, used: 0, src: "amex", label: t.note };
-        const on = !!marks[c.id + "|" + periodKey(c.period)];
-        return { amt, left: on ? 0 : amt, used: on ? amt : 0, src: "manual" };
-      };
-      const monthly = list.filter((c) => c.period === "monthly" && (!c.status || c.status === "active"));
-      const tot = monthly.reduce((s, c) => s + creditAmount(c), 0);
-      const used = monthly.reduce((s, c) => s + state(c).used, 0);
-      html += `<div class="money-sec"><div class="cardsum"><h3>${card}</h3><b>${money(used)} used · ${money(tot - used)} left this month</b></div>
-        <div class="bar"><i style="width:${tot ? Math.min(100, used / tot * 100) : 0}%"></i></div>
-        ${list.map((c) => {
-          const st = state(c);
-          const right = st.off ? `<span class="tag">${esc(st.label)}</span>`
-            : st.src === "amex" ? (st.left == null ? `<span class="tag">${esc(st.label || "pending")}</span>` : `<span class="amt">${money(st.left, st.left % 1 ? 2 : 0)} left</span>`)
-            : `<span class="amt">${money(st.amt)}</span><button class="toggle" role="switch" aria-checked="${st.used > 0}" aria-label="Mark ${esc(c.name)} used" data-id="${esc(c.id)}"></button>`;
-          return `<div class="credit${st.off ? " off" : ""}"><div class="cn">${esc(c.name)}<small>${esc(periodLabel(c.period))} · ${money(st.amt, st.amt % 1 ? 2 : 0)}${c.note && !st.off ? " · " + esc(c.note) : ""}</small></div>${right}</div>`;
-        }).join("")}</div>`;
-    }
+  const catById = Object.fromEntries(credits.map((c) => [c.id, c]));
+  const rows = (amex?.credits?.length ? amex.credits.filter((c) => !EXCLUDED_CREDITS.has(c.id)) : credits).map((c) => {
+    const cat = catById[c.id] || c;
+    const amt = creditAmount(cat.amount != null ? cat : c);
+    const st = c.status && c.status !== "active" ? { left: null, off: true, label: c.status === "locked" ? "Not unlocked" : "Not enrolled" }
+      : c.left != null ? { left: c.left, off: false, label: c.note }
+      : c.note ? { left: null, off: false, label: c.note }
+      : (() => { const on = !!marks[c.id + "|" + periodKey(cat.period || "annual")]; return { left: on ? 0 : amt, off: false, label: null, manual: !amex }; })();
+    const dl = creditDeadline(c, cat);
+    return { id: c.id, name: c.name || cat.name, card: c.card || cat.card, amt, dl, ...st };
+  });
+  const usable = rows.filter((r) => r.left > 0 && !r.off).sort((a, b) => (a.dl?.date || 0) - (b.dl?.date || 0) || b.left - a.left);
+  const main = usable.slice(0, 5);
+  const rest = rows.filter((r) => !main.some((m) => m.id === r.id));
+  const rowHtml = (r, { extra = false } = {}) => {
+    const name = extra && r.card ? `${esc(r.card)} · ${esc(r.name)}` : esc(r.name);
+    const right = r.off ? `<span class="tag">${esc(r.label)}</span>`
+      : r.left == null ? `<span class="tag">${esc(r.label || "pending")}</span>`
+      : r.manual ? `<span class="amt">${money(r.amt, r.amt % 1 ? 2 : 0)}</span><button class="toggle" role="switch" aria-checked="${r.left === 0}" aria-label="Mark ${esc(r.name)} used" data-id="${esc(r.id)}"></button>`
+      : `<span class="amt">${r.left > 0 ? moneyLeft(r.left) : "used"}</span>`;
+    return `<div class="credit${r.off || r.left === 0 ? " off" : ""}"><div class="cn">${name}</div>${right}${r.dl ? `<span class="when">${esc(fmtDeadline(r.dl))}</span>` : ""}</div>`;
+  };
+  let html = renderAccounts(amex) + renderSpending(amex);
+  html += renderWelcome(amex);
+  if (main.length || rest.length) {
+    html += `<div class="money-sec"><h3>Credits</h3><div class="credits-list">${main.map((r) => rowHtml(r)).join("")}</div>`;
+    if (rest.length) html += `<details class="credits-all"><summary>All credits</summary>${rest.map((r) => rowHtml(r, { extra: true })).join("")}</details>`;
+    html += `</div>`;
   }
-  html += renderSpending(amex) + renderSuggestions(amex);
+  html += renderSuggestions(amex);
   el.innerHTML = html || `<p class="empty">No credits loaded.</p>`;
   el.querySelectorAll(".toggle").forEach((b) => b.onclick = async () => {
     const c = credits.find((x) => x.id === b.dataset.id); const k = periodKey(c.period); const used = !marks[c.id + "|" + k];
@@ -560,11 +588,14 @@ function renderAccounts(a) {
   }
   if (a.points != null) h += `<div class="amex-stat"><span>Membership Rewards</span><b>${nf(a.points, 0)}</b><span>points</span></div>`;
   h += `</div>`;
-  const wo = (a.cards || []).find((c) => c.welcome_offer)?.welcome_offer;
-  if (wo) h += `<div class="money-sec"><div class="cardsum"><h3>Platinum welcome offer</h3><b>${money(wo.spent)} of ${money(wo.target)}</b></div>
-    <div class="bar"><i style="width:${Math.min(100, wo.spent / wo.target * 100)}%"></i></div>
-    <div class="small muted">${money(wo.target - wo.spent)} to go · by ${esc(fmtDay(wo.expires, { month: "short", day: "numeric", year: "numeric" }))}</div></div>`;
   return h;
+}
+function renderWelcome(a) {
+  const wo = (a?.cards || []).find((c) => c.welcome_offer)?.welcome_offer;
+  if (!wo) return "";
+  return `<div class="money-sec"><div class="cardsum"><h3>Platinum welcome offer</h3><b>${money(wo.spent)} of ${money(wo.target)}</b></div>
+    <div class="bar thin"><i style="width:${Math.min(100, wo.spent / wo.target * 100)}%"></i></div>
+    <div class="small muted">${money(wo.target - wo.spent)} to go · by ${esc(fmtDay(wo.expires, { month: "short", day: "numeric", year: "numeric" }))}</div></div>`;
 }
 function renderSpending(a) {
   const cards = a?.spending?.cards; if (!cards?.length) return "";
@@ -577,14 +608,14 @@ function renderSpending(a) {
   }).join("")}</div>`;
 }
 function renderSuggestions(a) {
-  if (!a?.suggestions?.length) return "";
-  return `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.filter((s) => !/\bOura\b|Uber One/i.test(s)).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
+  const items = (a?.suggestions || []).filter((s) => !/\bOura\b|Uber One/i.test(s)).slice(0, 3);
+  if (!items.length) return "";
+  return `<div class="money-sec"><h3>Suggestions</h3><ul class="suggest">${items.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
 }
-
 /* ---------------- stay on the latest deploy ----------------
    index.html loads app.js?v=<APP_VERSION>; version.json is fetched uncached on open/foreground and if the
    deployed version differs we reload once (also when a new service worker takes control). */
-const APP_VERSION = "2026-11-21.4";
+const APP_VERSION = "2026-11-21.5";
 async function checkVersion() {
   try {
     const { v } = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
