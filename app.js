@@ -136,8 +136,10 @@ async function boot(user) {
   $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   setupPlans();
+  setMktView(mktView);
   await Promise.all([loadDigest(), loadPlans(), loadCredits(), loadHoldings(), loadMarkets(), loadFx()]);
   weather(false);
+  setInterval(() => { if (document.visibilityState === "visible") weather(false); }, 15 * 60 * 1000);
   sb.channel("live")
     .on("postgres_changes", { event: "*", schema: "public", table: "plans" }, () => loadPlans())
     .on("postgres_changes", { event: "*", schema: "public", table: "credit_marks" }, () => loadCredits())
@@ -145,9 +147,9 @@ async function boot(user) {
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "digest" }, () => loadDigest())
     .subscribe();
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { renderHeader(); loadPlans(); loadCredits(); loadMarkets(); loadDigest(); }
+    if (document.visibilityState === "visible") { renderHeader(); weather(false); loadPlans(); loadCredits(); loadMarkets(); loadDigest(); }
   });
-  setInterval(() => { if (document.visibilityState === "visible") loadMarkets(); }, 5 * 60 * 1000);
+  setInterval(() => { if (document.visibilityState === "visible") { loadMarkets(); if (mktView === "holdings") loadHoldingQuotes(); } }, 5 * 60 * 1000);
 }
 
 function renderHeader() {
@@ -165,26 +167,39 @@ const WMO = { 0: ["☀️", "Clear"], 1: ["🌤️", "Mostly clear"], 2: ["⛅",
   66: ["🌧️", "Freezing rain"], 67: ["🌧️", "Freezing rain"], 71: ["🌨️", "Light snow"], 73: ["🌨️", "Snow"], 75: ["❄️", "Heavy snow"], 77: ["🌨️", "Snow grains"],
   80: ["🌦️", "Showers"], 81: ["🌦️", "Showers"], 82: ["⛈️", "Heavy showers"], 85: ["🌨️", "Snow showers"], 86: ["🌨️", "Snow showers"], 95: ["⛈️", "Thunderstorm"], 96: ["⛈️", "Thunderstorm"], 99: ["⛈️", "Thunderstorm"] };
 $("#weather").onclick = () => weather(true);
-async function weather(prompted) {
-  if (!("geolocation" in navigator)) return;
-  if (!prompted && navigator.permissions) {
-    try { const p = await navigator.permissions.query({ name: "geolocation" }); if (p.state !== "granted") return; } catch {}
-  }
-  $("#wxDesc").textContent = "Locating…";
+// Root-cause fix: we used to skip the fetch unless navigator.permissions said "granted" (iOS
+// home-screen apps report "prompt" even after you allow it), accepted a 30-min-old cached fix,
+// and only ran once at boot. Now: show last known place instantly, always request a fresh fix
+// on open / when the app comes back to the foreground / every 15 min, and fall back to the
+// last known coordinates if the fix fails.
+let wxBusy = false;
+async function renderWeather(la, lo, label) {
+  const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la.toFixed(3)}&longitude=${lo.toFixed(3)}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1&_=${Date.now()}`, { cache: "no-store" }).then((r) => r.json());
+  const [ico, desc] = WMO[w.current.weather_code] || ["◌", ""];
+  $("#wxIcon").textContent = ico;
+  $("#wxTemp").textContent = Math.round(w.current.temperature_2m) + "°F";
+  $("#wxDesc").textContent = `${desc} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}°${label ? " · " + label : ""}`;
+}
+async function placeName(la, lo) {
+  try { const g = await fetch(`https://api-bdc.io/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=en`).then((r) => r.json()); return g.city || g.locality || g.principalSubdivision || ""; } catch { return ""; }
+}
+async function weather(userTap) {
+  const last = JSON.parse(localStorage.getItem("maree_loc") || "null");
+  if (last) renderWeather(last.la, last.lo, last.place).catch(() => {});
+  if (!("geolocation" in navigator) || wxBusy) return;
+  wxBusy = true;
+  if (!last) $("#wxDesc").textContent = "Locating…";
   navigator.geolocation.getCurrentPosition(async (pos) => {
-    const { latitude: la, longitude: lo } = pos.coords;
-    try {
-      const [w, g] = await Promise.all([
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=1`).then((r) => r.json()),
-        fetch(`https://api-bdc.io/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=en`).then((r) => r.json()).catch(() => ({})),
-      ]);
-      const [ico, desc] = WMO[w.current.weather_code] || ["◌", ""];
-      $("#wxIcon").textContent = ico;
-      $("#wxTemp").textContent = Math.round(w.current.temperature_2m) + "°F";
-      const place = g.city || g.locality || g.principalSubdivision || "";
-      $("#wxDesc").textContent = `${desc} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}°${place ? " · " + place : ""}`;
-    } catch { $("#wxDesc").textContent = "Weather unavailable"; }
-  }, () => { $("#wxDesc").textContent = "Allow location for weather"; }, { maximumAge: 30 * 60 * 1000, timeout: 15000 });
+    wxBusy = false;
+    const la = pos.coords.latitude, lo = pos.coords.longitude;
+    const moved = !last || Math.abs(last.la - la) > 0.05 || Math.abs(last.lo - lo) > 0.05;
+    const place = moved ? await placeName(la, lo) : last.place;
+    localStorage.setItem("maree_loc", JSON.stringify({ la, lo, place, at: Date.now() }));
+    try { await renderWeather(la, lo, place); } catch { if (!last) $("#wxDesc").textContent = "Weather unavailable"; }
+  }, (err) => {
+    wxBusy = false;
+    if (!last) $("#wxDesc").textContent = err.code === 1 ? "Allow location for weather" : "Couldn't get location — tap to retry";
+  }, { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 20000 });
 }
 
 /* ---------------- plans ---------------- */
@@ -267,6 +282,7 @@ async function loadDigest() {
 }
 function renderDigest(d) {
   renderTravel(d?.travel); renderNotifs(d?.notifications); renderNews(d?.news); renderAdeline(d?.adeline);
+  if (credits.length) renderCredits();
 }
 function renderTravel(trips) {
   const el = $("#travelBody");
@@ -285,7 +301,7 @@ function renderTravel(trips) {
 }
 function renderNotifs(n) {
   const el = $("#notifList");
-  const off = (n?.not_connected || ["WhatsApp", "iMessage"]).map((c) => `<li class="off"><span class="avatar" style="background:rgba(255,255,255,.08)">·</span><div class="nbody"><div class="nsub">${esc(c)}</div><div class="nsnip">Not connected yet</div></div></li>`).join("");
+  const off = "";
   if (!n || !n.items) { el.innerHTML = `<li class="empty">${n ? "Messages couldn't be gathered this morning." : "Waiting for the morning digest."}</li>` + off; return; }
   const items = [...n.items].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   el.innerHTML = (items.length ? items.map((m) => {
@@ -296,16 +312,17 @@ function renderNotifs(n) {
       <div class="nsnip">${esc(m.snippet || "")} · ${m.date ? esc(relTime(m.date)) : ""}</div></div></li>`;
   }).join("") : `<li class="empty">No new messages from people.</li>`) + (n.note ? `<li class="off"><div class="nbody nsnip">${esc(n.note)}</div></li>` : "") + off;
 }
-const NEWS_TABS = [["tech", "Tech"], ["business", "Business"], ["france", "France"], ["brazil", "Brazil"], ["barrons", "Your holdings"]];
+const NEWS_TABS = [["tech", "Tech"], ["business", "Business"], ["france", "France"], ["brazil", "Brazil"], ["datadog", "Datadog"], ["barrons", "Your holdings"]];
 function renderNews(news) {
-  $("#newsTabs").innerHTML = NEWS_TABS.map(([k, l]) => `<button role="tab" data-k="${k}" class="${k === newsTab ? "on" : ""}">${l}</button>`).join("");
+  const tabs = news?.wsj_exclusives?.length ? [["wsj_exclusives", "WSJ+"], ...NEWS_TABS] : NEWS_TABS;
+  $("#newsTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" data-k="${k}" class="${k === newsTab ? "on" : ""}">${l}</button>`).join("");
   $("#newsTabs").querySelectorAll("button").forEach((b) => b.onclick = () => { newsTab = b.dataset.k; renderNews(news); });
   const el = $("#newsList");
   if (!news) { el.innerHTML = `<li class="empty">Waiting for the morning digest.</li>`; return; }
-  const items = newsTab === "barrons" ? news.barrons : news.wsj?.[newsTab];
-  if (!items?.length) { el.innerHTML = `<li class="empty">No fresh ${newsTab === "barrons" ? "Barron's stories on your holdings" : "WSJ headlines here"} this morning.</li>`; return; }
+  const items = newsTab === "barrons" ? news.barrons : newsTab === "datadog" ? news.datadog : newsTab === "wsj_exclusives" ? news.wsj_exclusives : news.wsj?.[newsTab];
+  if (!items?.length) { el.innerHTML = `<li class="empty">${newsTab === "datadog" && !("datadog" in news) ? "Datadog news starts with the next morning refresh." : "No fresh headlines here this morning."}</li>`; return; }
   el.innerHTML = items.map((i) => `<li><a href="${esc(safeUrl(i.url))}" target="_blank" rel="noopener">${esc(i.title)}</a>
-    <div class="nmeta"><span>${esc(i.source || (newsTab === "barrons" ? "Barron's" : "WSJ"))}</span>${i.published ? `<span>${esc(relTime(i.published))}</span>` : ""}${(i.tickers || []).map((t) => `<span class="tk">${esc(t)}</span>`).join("")}</div></li>`).join("");
+    <div class="nmeta"><span>${esc(i.source || (newsTab === "barrons" ? "Barron's" : newsTab === "datadog" ? "" : "WSJ"))}</span>${i.published ? `<span>${esc(relTime(i.published))}</span>` : ""}${(i.tickers || []).map((t) => `<span class="tk">${esc(t)}</span>`).join("")}</div></li>`).join("");
 }
 function renderAdeline(a) {
   const el = $("#adelineBody");
@@ -346,24 +363,54 @@ async function loadMarkets() {
 }
 async function loadFx() {
   const start = new Date(Date.now() - 35 * 86400000).toISOString().slice(0, 10);
-  const pairs = [["BRL", "BRL → USD", "https://www.barrons.com/market-data/currencies/brlusd"], ["EUR", "EUR → USD", "https://www.barrons.com/market-data/currencies/eurusd"]];
+  // [base, quote, label, prefix, link]
+  const pairs = [["USD", "BRL", "USD → BRL", "R$", "https://www.barrons.com/market-data/currencies/usdbrl"], ["EUR", "USD", "EUR → USD", "$", "https://www.barrons.com/market-data/currencies/eurusd"]];
   try {
-    const tiles = await Promise.all(pairs.map(async ([base, label, link]) => {
-      const j = await fetch(`https://api.frankfurter.dev/v1/${start}..?base=${base}&symbols=USD`).then((r) => r.json());
-      const days = Object.keys(j.rates).sort(); const vals = days.map((d) => j.rates[d].USD);
+    const tiles = await Promise.all(pairs.map(async ([base, quote, label, pre, link]) => {
+      const j = await fetch(`https://api.frankfurter.dev/v1/${start}..?base=${base}&symbols=${quote}`).then((r) => r.json());
+      const days = Object.keys(j.rates).sort(); const vals = days.map((d) => j.rates[d][quote]);
       const last = vals.at(-1), prev = vals.at(-2), pct = prev ? (last - prev) / prev * 100 : 0, up = pct >= 0;
       return `<a class="tile" href="${link}" target="_blank" rel="noopener" title="Open on Barron's"><div class="nm">${label}</div>
-        <div class="px">$${nf(last, base === "BRL" ? 4 : 4)}</div><div class="ch ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${nf(Math.abs(pct))}% <span class="muted">· ${esc(fmtDay(days.at(-1), { month: "short", day: "numeric" }))}</span></div>${spark(vals.slice(-22), up)}</a>`;
+        <div class="px">${pre}${nf(last, 4)}</div><div class="ch ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${nf(Math.abs(pct))}% <span class="muted">· ${esc(fmtDay(days.at(-1), { month: "short", day: "numeric" }))}</span></div>${spark(vals.slice(-22), up)}</a>`;
     }));
     $("#fxTiles").innerHTML = tiles.join("");
   } catch { $("#fxTiles").innerHTML = `<p class="empty">Exchange rates unavailable.</p>`; }
 }
 
-/* ---------------- holdings ---------------- */
+/* ---------------- holdings (live quotes in the Markets card) ---------------- */
+let mktView = localStorage.getItem("maree_mktview") || "markets";
+function setMktView(v) {
+  mktView = v; localStorage.setItem("maree_mktview", v);
+  document.querySelectorAll("#mktSeg button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  $("#mktView").classList.toggle("hidden", v !== "markets"); $("#holdView").classList.toggle("hidden", v !== "holdings");
+  $("#mktTitle").textContent = v === "markets" ? "Markets" : "My holdings";
+  if (v === "holdings") loadHoldingQuotes();
+}
+document.querySelectorAll("#mktSeg button").forEach((b) => b.onclick = () => setMktView(b.dataset.v));
+const barronsQuote = (t) => `https://www.barrons.com/market-data/stocks/${t.toLowerCase()}`;
+async function loadHoldingQuotes() {
+  const el = $("#holdTiles");
+  if (!holdings.length) { el.innerHTML = `<p class="empty">No holdings yet. Add them below.</p>`; return; }
+  if (!el.innerHTML) el.innerHTML = `<div class="skel"></div><div class="skel"></div>`;
+  try {
+    const syms = holdings.map((h) => h.ticker).join(",");
+    const { data, error } = await sb.functions.invoke("markets?symbols=" + encodeURIComponent(syms), { method: "GET" });
+    if (error) throw error;
+    const byT = Object.fromEntries(data.quotes.map((q) => [q.ticker, q]));
+    el.innerHTML = holdings.map((h) => {
+      const q = byT[h.ticker] || { error: 1 }; const up = (q.changePct ?? 0) >= 0;
+      return `<a class="tile" href="${esc(barronsQuote(h.ticker))}" target="_blank" rel="noopener" title="Open on Barron's">
+        <div class="nm">${esc(h.ticker)}${h.weight != null ? `<span class="wt">${nf(h.weight, 1)}%</span>` : ""}</div>
+        <div class="px">${q.error ? "—" : "$" + nf(q.last)}</div>
+        ${q.error ? `<div class="ch muted">unavailable</div>` : `<div class="ch ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${nf(Math.abs(q.changePct ?? 0))}%</div>${spark(q.closes, up)}`}</a>`;
+    }).join("");
+  } catch { el.innerHTML = `<p class="empty">Holding prices are unavailable right now.</p>`; }
+}
+
 let holdings = [];
 async function loadHoldings() {
   const { data } = await sb.from("holdings").select("*").order("weight", { ascending: false, nullsFirst: false });
-  holdings = data || []; renderHoldings();
+  holdings = data || []; renderHoldings(); if (mktView === "holdings") loadHoldingQuotes();
 }
 function renderHoldings() {
   $("#holdList").innerHTML = holdings.map((h) => `<li class="hold ${h.track_news ? "" : "off"}" data-t="${esc(h.ticker)}">
@@ -400,6 +447,18 @@ function periodLabel(period) {
   if (period === "semiannual") return m <= 6 ? "Jan–Jun · ends Jun 30" : "Jul–Dec · ends Dec 31";
   return "";
 }
+function renderAmex(a) {
+  // Filled by a signed-in Amex run (digest.payload.amex); until then a quiet placeholder.
+  if (!a) return `<div class="placeholder">Balances, spending by category, points and suggestions appear here once Amex is connected.</div>`;
+  const money = (v) => v == null ? "—" : "$" + nf(v, 0);
+  let h = `<div class="money-sec"><h3>Account${a.as_of ? " · as of " + esc(new Date(a.as_of).toLocaleDateString("en-US", { month: "short", day: "numeric" })) : ""}</h3><div class="amex-grid">`;
+  for (const c of a.cards || []) h += `<div class="amex-stat"><b>${money(c.statement_balance)}</b><span>${esc(c.card)} statement${c.due_date ? " · due " + esc(fmtDay(c.due_date, { month: "short", day: "numeric" })) : ""}</span></div>`;
+  if (a.points != null) h += `<div class="amex-stat"><b>${nf(a.points, 0)}</b><span>Membership Rewards</span></div>`;
+  h += `</div></div>`;
+  if (a.spending?.length) h += `<div class="money-sec"><h3>Spending this month</h3>${a.spending.map((s) => `<div class="cat"><span>${esc(s.category)}</span><span>${money(s.amount)}</span></div>`).join("")}</div>`;
+  if (a.suggestions?.length) h += `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
+  return h;
+}
 function creditAmount(c) { const m = +todayISO().split("-")[1]; return c.id === "plat_uber" && m === 12 ? 35 : Number(c.amount); }
 async function loadCredits() {
   const [{ data: cs }, { data: ms }] = await Promise.all([
@@ -429,6 +488,7 @@ function renderCredits() {
           <button class="toggle" role="switch" aria-checked="${on}" aria-label="Mark ${esc(c.name)} used" data-id="${esc(c.id)}"></button></div>`;
       }).join("")}</div>`;
   }
+  html += renderAmex(digest?.amex);
   el.innerHTML = html;
   el.querySelectorAll(".toggle").forEach((b) => b.onclick = async () => {
     const c = credits.find((x) => x.id === b.dataset.id); const k = periodKey(c.period); const used = !marks[c.id + "|" + k];

@@ -110,9 +110,30 @@
     </section>
 
     <section class="card glass markets" id="marketsCard">
-      <div class="card-h"><h2>Markets</h2><span class="small muted" id="mktMeta"></span></div>
-      <div class="tiles" id="mktTiles"></div>
-      <div class="tiles fx" id="fxTiles"></div>
+      <div class="card-h"><h2 id="mktTitle">Markets</h2>
+        <div class="seg" role="tablist" id="mktSeg">
+          <button role="tab" class="on" data-v="markets">Markets</button>
+          <button role="tab" data-v="holdings">My holdings</button>
+        </div>
+      </div>
+      <div id="mktView">
+        <div class="tiles" id="mktTiles"></div>
+        <div class="tiles fx" id="fxTiles"></div>
+      </div>
+      <div id="holdView" class="hidden">
+        <div class="tiles" id="holdTiles"></div>
+        <details class="holdings">
+          <summary class="small">Edit holdings</summary>
+          <ul id="holdList" class="hold-list"></ul>
+          <form class="add" id="holdForm">
+            <input id="holdTicker" placeholder="Ticker" maxlength="12" autocomplete="off" style="max-width:7rem">
+            <input id="holdWeight" placeholder="Weight %" inputmode="decimal" style="max-width:7rem">
+            <button class="btn primary sm" type="submit">Add</button>
+          </form>
+          <p class="small muted">◉ = included in the morning Barron's news.</p>
+        </details>
+      </div>
+      <div class="small muted" id="mktMeta" style="margin-top:.5rem"></div>
     </section>
 
     <section class="card glass news" id="newsCard">
@@ -120,15 +141,6 @@
         <div class="seg scroll" id="newsTabs" role="tablist"></div>
       </div>
       <ul class="news-list" id="newsList"></ul>
-      <details class="holdings">
-        <summary class="small">Holdings tracked for Barron's news</summary>
-        <ul id="holdList" class="hold-list"></ul>
-        <form class="add" id="holdForm">
-          <input id="holdTicker" placeholder="Ticker" maxlength="12" autocomplete="off" style="max-width:7rem">
-          <input id="holdWeight" placeholder="Weight %" inputmode="decimal" style="max-width:7rem">
-          <button class="btn primary sm" type="submit">Add</button>
-        </form>
-      </details>
     </section>
 
     <section class="card glass money" id="moneyCard">
