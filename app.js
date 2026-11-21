@@ -449,12 +449,13 @@ function periodLabel(period) {
   return `${y} · ends Dec 31`;
 }
 function creditAmount(c) { const m = +todayISO().split("-")[1]; return c.id === "plat_uber" && m === 12 ? 35 : Number(c.amount); }
+const EXCLUDED_CREDITS = new Set(["plat_oura", "plat_uberone"]); // Marlon: leave these out
 async function loadCredits() {
   const [{ data: cs }, { data: ms }] = await Promise.all([
     sb.from("credits").select("*").order("sort"),
     sb.from("credit_marks").select("*"),
   ]);
-  credits = cs || []; marks = {};
+  credits = (cs || []).filter((c) => !EXCLUDED_CREDITS.has(c.id)); marks = {};
   (ms || []).forEach((m) => marks[m.credit_id + "|" + m.period_key] = m.used);
   renderCredits();
 }
@@ -462,7 +463,7 @@ const money = (v, d = 0) => v == null ? "—" : "$" + nf(v, d);
 function renderCredits() {
   const el = $("#moneyBody");
   const amex = digest?.amex || null;
-  const tracked = Object.fromEntries((amex?.credits || []).map((c) => [c.id, c]));
+  const tracked = Object.fromEntries((amex?.credits || []).filter((c) => !EXCLUDED_CREDITS.has(c.id)).map((c) => [c.id, c]));
   const pill = $("#moneyCard .pill");
   if (pill) { pill.textContent = amex ? "Amex · " + new Date(amex.as_of).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" : "manual until Amex is connected"; pill.classList.toggle("warn", !amex); }
   let html = renderAccounts(amex);
@@ -530,7 +531,7 @@ function renderSpending(a) {
 }
 function renderSuggestions(a) {
   if (!a?.suggestions?.length) return "";
-  return `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
+  return `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.filter((s) => !/\bOura\b|Uber One/i.test(s)).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
 }
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
