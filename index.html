@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b2a43">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marée">
+<title>Marée</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="sky" aria-hidden="true"><div class="sun"></div></div>
+<svg class="waves" aria-hidden="true" viewBox="0 0 1440 220" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="wg1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#5fa8d3" stop-opacity=".22"/><stop offset="1" stop-color="#1b4965" stop-opacity=".1"/></linearGradient>
+    <linearGradient id="wg2" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#8ecae6" stop-opacity=".18"/><stop offset="1" stop-color="#0b2a43" stop-opacity=".05"/></linearGradient>
+  </defs>
+  <g class="w w1"><path fill="url(#wg1)" d="M0 118 C 120 96 240 96 360 118 S 600 140 720 118 S 960 96 1080 118 S 1320 140 1440 118 S 1680 96 1800 118 S 2040 140 2160 118 S 2400 96 2520 118 S 2760 140 2880 118 V220 H0Z"/></g>
+  <g class="w w2"><path fill="url(#wg2)" d="M0 150 C 80 134 160 134 240 150 S 400 166 480 150 S 640 134 720 150 S 880 166 960 150 S 1120 134 1200 150 S 1360 166 1440 150 S 1600 134 1680 150 S 1840 166 1920 150 S 2080 134 2160 150 S 2320 166 2400 150 S 2560 134 2640 150 S 2800 166 2880 150 V220 H0Z"/></g>
+  <g class="w w3"><path fill="rgba(255,255,255,.06)" d="M0 180 C 60 172 120 172 180 180 S 300 188 360 180 S 480 172 540 180 S 660 188 720 180 S 840 172 900 180 S 1020 188 1080 180 S 1200 172 1260 180 S 1380 188 1440 180 S 1560 172 1620 180 S 1740 188 1800 180 S 1920 172 1980 180 S 2100 188 2160 180 S 2280 172 2340 180 S 2460 188 2520 180 S 2640 172 2700 180 S 2820 188 2880 180 V220 H0Z"/></g>
+</svg>
+
+<main id="auth" class="auth hidden">
+  <div class="glass auth-card">
+    <div class="brand"><img src="icon.svg" alt="" width="40" height="40"><div><h1>Marée</h1><p class="muted">Private dashboard</p></div></div>
+    <form id="emailForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required placeholder="you@georgetown.edu">
+      <button class="btn primary" type="submit">Send sign-in link</button>
+    </form>
+    <form id="codeForm" class="hidden">
+      <p class="muted small">Check your email. Tap the link, or if it opens in the wrong place (like Safari instead of the home-screen app), long-press the link, copy it, and paste it here. A 6-digit code works too.</p>
+      <input id="code" autocomplete="one-time-code" required placeholder="Paste link or code">
+      <button class="btn primary" type="submit">Sign in</button>
+      <button class="btn ghost" type="button" id="backBtn">Use a different email</button>
+    </form>
+    <p id="authMsg" class="small msg" role="status"></p>
+  </div>
+</main>
+
+<main id="app" class="app hidden">
+  <header class="today glass">
+    <div class="today-main">
+      <div class="date" id="todayDate"></div>
+      <h1 id="greeting">Hello</h1>
+    </div>
+    <button class="weather" id="weather" title="Weather where you are">
+      <span class="wx-ico" id="wxIcon">◌</span>
+      <span><b id="wxTemp">—</b><span class="small" id="wxDesc">Tap for local weather</span></span>
+    </button>
+    <div class="hdr-actions">
+      <span class="digest-age small" id="digestAge"></span>
+      <button class="icon-btn" id="signOut" title="Sign out" aria-label="Sign out">⎋</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card glass plans" id="plansCard">
+      <div class="card-h"><h2>Plans</h2>
+        <div class="seg" role="tablist">
+          <button role="tab" class="on" data-kind="todo">Today</button>
+          <button role="tab" data-kind="weekend">Weekend</button>
+        </div>
+      </div>
+      <ul class="plan-list" id="planList"></ul>
+      <form class="add" id="addForm">
+        <input id="addInput" placeholder="Add a plan or to-do…" maxlength="300" autocomplete="off">
+        <button class="btn primary sm" type="submit" aria-label="Add">＋</button>
+      </form>
+      <button class="link small" id="showDone"></button>
+    </section>
+
+    <section class="card glass travel" id="travelCard">
+      <div class="card-h"><h2>Travel</h2><span class="small muted" id="travelMeta"></span></div>
+      <div id="travelBody"></div>
+    </section>
+
+    <section class="card glass notif" id="notifCard">
+      <div class="card-h"><h2>Messages</h2><span class="small muted">people only</span></div>
+      <ul class="notif-list" id="notifList"></ul>
+    </section>
+
+    <section class="card glass markets" id="marketsCard">
+      <div class="card-h"><h2>Markets</h2><span class="small muted" id="mktMeta"></span></div>
+      <div class="tiles" id="mktTiles"></div>
+      <div class="tiles fx" id="fxTiles"></div>
+    </section>
+
+    <section class="card glass news" id="newsCard">
+      <div class="card-h"><h2>News</h2>
+        <div class="seg scroll" id="newsTabs" role="tablist"></div>
+      </div>
+      <ul class="news-list" id="newsList"></ul>
+      <details class="holdings">
+        <summary class="small">Holdings tracked for Barron's news</summary>
+        <ul id="holdList" class="hold-list"></ul>
+        <form class="add" id="holdForm">
+          <input id="holdTicker" placeholder="Ticker" maxlength="12" autocomplete="off" style="max-width:7rem">
+          <input id="holdWeight" placeholder="Weight %" inputmode="decimal" style="max-width:7rem">
+          <button class="btn primary sm" type="submit">Add</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="card glass money" id="moneyCard">
+      <div class="card-h"><h2>Amex credits</h2><span class="pill warn small">manual until Amex is connected</span></div>
+      <div id="moneyBody"></div>
+    </section>
+
+    <section class="card glass adeline" id="adelineCard">
+      <div class="card-h"><h2>Adeline's job search</h2></div>
+      <div id="adelineBody"></div>
+    </section>
+  </div>
+  <footer class="small muted foot" id="foot"></footer>
+</main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
