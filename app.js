@@ -4,7 +4,7 @@ const SUPABASE_URL = "https://gmrdqoazdbisklpnjjnv.supabase.co";
 const SUPABASE_KEY = "sb_publishable_xBdga-kiPV_LtmW6-EU7EA_J4EFjv5A"; // publishable (safe in browsers)
 const TZ = "America/New_York";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" },
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit", experimental: { passkey: true } },
 });
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -48,6 +48,7 @@ async function login(password) {
     return;
   }
   localStorage.setItem("maree_email", email);
+  offerPasskey();
   $("#pin").value = ""; $("#password").value = ""; drawDots(); $("#authMsg").textContent = "";
 }
 $("#pin").addEventListener("input", () => {
@@ -83,6 +84,39 @@ $("#pwForm").onsubmit = async (e) => {
   if (error) { $("#pwMsg").textContent = error.message; return; }
   $("#pwModal").classList.add("hidden"); toast("PIN updated");
 };
+
+/* ---------------- Face ID / passkeys (Supabase Auth passkeys, beta) ---------------- */
+// Shown only when the project has passkeys switched on (Auth → Passkeys) and the browser supports WebAuthn.
+let passkeysOn = false;
+const pkReady = (async () => {
+  try {
+    if (!window.PublicKeyCredential) return false;
+    const s = await fetch(SUPABASE_URL + "/auth/v1/settings", { headers: { apikey: SUPABASE_KEY } }).then((r) => r.json());
+    passkeysOn = !!s.passkeys_enabled;
+  } catch { passkeysOn = false; }
+  $("#passkeyBtn").classList.toggle("hidden", !passkeysOn);
+  $("#enrollBtn").classList.toggle("hidden", !passkeysOn);
+  return passkeysOn;
+})();
+$("#passkeyBtn").onclick = async () => {
+  $("#authMsg").textContent = "Waiting for Face ID…";
+  const { error } = await sb.auth.signInWithPasskey();
+  $("#authMsg").textContent = error ? "Face ID didn't work. Use your PIN." : "";
+  if (!error) localStorage.setItem("maree_passkey", "1");
+};
+async function offerPasskey(force) {
+  if (!(await pkReady)) return;
+  if (!force && (localStorage.getItem("maree_passkey") || localStorage.getItem("maree_passkey_skip"))) return;
+  $("#enMsg").textContent = ""; $("#enrollModal").classList.remove("hidden");
+}
+$("#enLater").onclick = () => { localStorage.setItem("maree_passkey_skip", "1"); $("#enrollModal").classList.add("hidden"); };
+$("#enYes").onclick = async () => {
+  $("#enMsg").textContent = "Follow the Face ID prompt…";
+  const { error } = await sb.auth.registerPasskey();
+  if (error) { $("#enMsg").textContent = "Couldn't set up Face ID: " + error.message; return; }
+  localStorage.setItem("maree_passkey", "1"); $("#enrollModal").classList.add("hidden"); toast("Face ID is set up for next time");
+};
+$("#enrollBtn").onclick = () => { $("#menu").classList.add("hidden"); offerPasskey(true); };
 
 let started = false;
 sb.auth.onAuthStateChange((ev, session) => {

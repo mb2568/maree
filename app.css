@@ -200,3 +200,5 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .pinpad button{font:inherit;font-size:1.35rem;height:60px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:var(--text);cursor:pointer}
 .pinpad button:active{background:rgba(124,196,232,.25)}
 #pwWrap{display:grid;gap:.55rem}
+
+.faceid{width:100%;margin:.3rem 0 .2rem}

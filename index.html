@@ -35,6 +35,7 @@
     <form id="loginForm" autocomplete="on">
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" required>
+      <button class="btn primary faceid hidden" type="button" id="passkeyBtn">Sign in with Face ID</button>
       <div id="pinWrap">
         <label for="pin">PIN</label>
         <div class="pin-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -75,6 +76,7 @@
         <div class="menu glass hidden" id="menu" role="menu">
           <div class="small muted" id="menuWho"></div>
           <button role="menuitem" id="changePwBtn">Change PIN</button>
+          <button role="menuitem" id="enrollBtn" class="hidden">Set up Face ID</button>
           <button role="menuitem" id="signOut">Sign out</button>
         </div>
       </div>
@@ -151,6 +153,14 @@
     <p class="small msg" id="pwMsg" role="status"></p>
     <div class="modal-actions"><button type="button" class="btn ghost" id="pwCancel">Cancel</button><button class="btn primary" type="submit">Save</button></div>
   </form>
+</div>
+<div class="modal hidden" id="enrollModal" role="dialog" aria-modal="true" aria-labelledby="enTitle">
+  <div class="glass modal-card">
+    <h2 id="enTitle">Use Face ID next time?</h2>
+    <p class="small muted">Saves a passkey to your Apple Keychain so you can open Marée with Face ID instead of your PIN. Your PIN keeps working as a backup.</p>
+    <p class="small msg" id="enMsg" role="status"></p>
+    <div class="modal-actions"><button type="button" class="btn ghost" id="enLater">Not now</button><button type="button" class="btn primary" id="enYes">Use Face ID</button></div>
+  </div>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
