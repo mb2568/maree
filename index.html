@@ -32,16 +32,13 @@
 <main id="auth" class="auth hidden">
   <div class="glass auth-card">
     <div class="brand"><img src="icon.svg" alt="" width="40" height="40"><div><h1>Marée</h1><p class="muted">Private dashboard</p></div></div>
-    <form id="emailForm">
+    <form id="loginForm">
       <label for="email">Email</label>
-      <input id="email" type="email" autocomplete="email" required placeholder="you@georgetown.edu">
-      <button class="btn primary" type="submit">Send sign-in link</button>
-    </form>
-    <form id="codeForm" class="hidden">
-      <p class="muted small">Check your email. Tap the link, or if it opens in the wrong place (like Safari instead of the home-screen app), long-press the link, copy it, and paste it here. A 6-digit code works too.</p>
-      <input id="code" autocomplete="one-time-code" required placeholder="Paste link or code">
+      <input id="email" type="email" autocomplete="username" required placeholder="you@georgetown.edu">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required placeholder="Password">
       <button class="btn primary" type="submit">Sign in</button>
-      <button class="btn ghost" type="button" id="backBtn">Use a different email</button>
+      <p class="muted small">You'll stay signed in on this device until you sign out.</p>
     </form>
     <p id="authMsg" class="small msg" role="status"></p>
   </div>
@@ -59,7 +56,14 @@
     </button>
     <div class="hdr-actions">
       <span class="digest-age small" id="digestAge"></span>
-      <button class="icon-btn" id="signOut" title="Sign out" aria-label="Sign out">⎋</button>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menuBtn" title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false">⚙︎</button>
+        <div class="menu glass hidden" id="menu" role="menu">
+          <div class="small muted" id="menuWho"></div>
+          <button role="menuitem" id="changePwBtn">Change password</button>
+          <button role="menuitem" id="signOut">Sign out</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -123,6 +127,17 @@
   </div>
   <footer class="small muted foot" id="foot"></footer>
 </main>
+<div class="modal hidden" id="pwModal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+  <form class="glass modal-card" id="pwForm">
+    <h2 id="pwTitle">Change password</h2>
+    <label for="newPw">New password</label>
+    <input id="newPw" type="password" autocomplete="new-password" minlength="8" required>
+    <label for="newPw2">Confirm new password</label>
+    <input id="newPw2" type="password" autocomplete="new-password" minlength="8" required>
+    <p class="small msg" id="pwMsg" role="status"></p>
+    <div class="modal-actions"><button type="button" class="btn ghost" id="pwCancel">Cancel</button><button class="btn primary" type="submit">Save</button></div>
+  </form>
+</div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.min.js"></script>

@@ -27,75 +27,51 @@ function toast(msg, action) {
   t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 4500);
 }
 
-/* ---------------- auth ---------------- */
-let pendingEmail = localStorage.getItem("maree_email") || "";
-function showAuth(step) {
+/* ---------------- auth: email + password, signed in once per device ---------------- */
+function showAuth() {
   $("#app").classList.add("hidden"); $("#auth").classList.remove("hidden");
-  $("#emailForm").classList.toggle("hidden", step === "code");
-  $("#codeForm").classList.toggle("hidden", step !== "code");
-  if (pendingEmail) $("#email").value = pendingEmail;
+  const last = localStorage.getItem("maree_email"); if (last) $("#email").value = last;
 }
-$("#emailForm").onsubmit = async (e) => {
+$("#loginForm").onsubmit = async (e) => {
   e.preventDefault();
-  pendingEmail = $("#email").value.trim().toLowerCase();
-  localStorage.setItem("maree_email", pendingEmail);
-  $("#authMsg").textContent = "Sending…";
-  const { error } = await sb.auth.signInWithOtp({ email: pendingEmail, options: { emailRedirectTo: location.origin + location.pathname } });
-  if (error) {
-    $("#authMsg").textContent = /not authorized|restricted|database error/i.test(error.message)
-      ? "This dashboard is private. That email can't sign in." : error.message;
-    return;
-  }
-  localStorage.setItem("maree_sent", String(Date.now()));
-  $("#authMsg").textContent = "Sign-in email sent to " + pendingEmail + ".";
-  showAuth("code");
-};
-$("#backBtn").onclick = () => { $("#authMsg").textContent = ""; showAuth("email"); };
-$("#codeForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const v = $("#code").value.trim();
+  const email = $("#email").value.trim().toLowerCase();
   $("#authMsg").textContent = "Signing in…";
-  let res;
-  try {
-    if (/^\d{6,10}$/.test(v)) {
-      res = await sb.auth.verifyOtp({ email: pendingEmail, token: v, type: "email" });
-    } else {
-      const u = new URL(v);
-      const hash = new URLSearchParams(u.hash.replace(/^#/, ""));
-      if (hash.get("access_token") && hash.get("refresh_token")) {
-        res = await sb.auth.setSession({ access_token: hash.get("access_token"), refresh_token: hash.get("refresh_token") });
-      } else {
-        const token = u.searchParams.get("token") || u.searchParams.get("token_hash");
-        let type = u.searchParams.get("type") || "magiclink";
-        if (!token) throw new Error("That link doesn't contain a sign-in token.");
-        res = await sb.auth.verifyOtp({ token_hash: token, type });
-        if (res.error && type !== "email") res = await sb.auth.verifyOtp({ token_hash: token, type: "email" });
-      }
-    }
-  } catch (err) { res = { error: err }; }
-  if (res?.error) { $("#authMsg").textContent = "That didn't work: " + res.error.message + " Try sending a new link."; return; }
-  $("#authMsg").textContent = ""; $("#code").value = "";
+  const { error } = await sb.auth.signInWithPassword({ email, password: $("#password").value });
+  if (error) { $("#authMsg").textContent = /invalid/i.test(error.message) ? "Wrong email or password." : error.message; return; }
+  localStorage.setItem("maree_email", email);
+  $("#password").value = ""; $("#authMsg").textContent = "";
 };
 $("#signOut").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+$("#menuBtn").onclick = (e) => { e.stopPropagation(); const m = $("#menu"); const open = m.classList.toggle("hidden") === false; $("#menuBtn").setAttribute("aria-expanded", open); };
+document.addEventListener("click", (e) => { if (!e.target.closest(".menu-wrap")) $("#menu").classList.add("hidden"); });
+$("#changePwBtn").onclick = () => { $("#menu").classList.add("hidden"); $("#pwMsg").textContent = ""; $("#pwForm").reset(); $("#pwModal").classList.remove("hidden"); $("#newPw").focus(); };
+$("#pwCancel").onclick = () => $("#pwModal").classList.add("hidden");
+$("#pwForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const a = $("#newPw").value, b = $("#newPw2").value;
+  if (a.length < 8) { $("#pwMsg").textContent = "Use at least 8 characters."; return; }
+  if (a !== b) { $("#pwMsg").textContent = "Passwords don't match."; return; }
+  $("#pwMsg").textContent = "Saving…";
+  const { error } = await sb.auth.updateUser({ password: a });
+  if (error) { $("#pwMsg").textContent = error.message; return; }
+  $("#pwModal").classList.add("hidden"); toast("Password updated");
+};
 
 let started = false;
 sb.auth.onAuthStateChange((ev, session) => {
   if (session?.user && !started) { started = true; if (location.hash.includes("access_token")) history.replaceState(null, "", location.pathname); boot(session.user); }
-  if (!session && ev === "SIGNED_OUT") { started = false; showAuth("email"); }
+  if (!session && ev === "SIGNED_OUT") { started = false; showAuth(); }
 });
 (async () => {
   const { data } = await sb.auth.getSession();
-  if (!data.session) {
-    const err = new URLSearchParams(location.hash.slice(1)).get("error_description");
-    if (err) $("#authMsg").textContent = err.replace(/\+/g, " ");
-    showAuth(pendingEmail && Date.now() - (+localStorage.getItem("maree_sent") || 0) < 3600e3 ? "code" : "email");
-  }
+  if (!data.session) showAuth();
 })();
 
 /* ---------------- boot ---------------- */
 let me = null;
 async function boot(user) {
   me = user;
+  $("#menuWho").textContent = user.email || "";
   $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   setupPlans();

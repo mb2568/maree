@@ -178,3 +178,13 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .toast button{background:none;border:0;color:var(--accent2);font:inherit;font-weight:600;cursor:pointer}
 .skel{height:14px;border-radius:7px;background:linear-gradient(90deg,rgba(255,255,255,.05),rgba(255,255,255,.12),rgba(255,255,255,.05));background-size:200% 100%;animation:sh 1.4s infinite;margin:.4rem 0}
 @keyframes sh{to{background-position:-200% 0}}
+
+.auth-card form{display:grid;gap:.55rem}
+.menu-wrap{position:relative}
+.menu{position:absolute;right:0;top:42px;min-width:190px;padding:.5rem;z-index:5;display:grid;gap:.2rem;background:rgba(9,36,58,.92)}
+.menu button{font:inherit;text-align:left;background:none;border:0;color:var(--text);padding:.55rem .6rem;border-radius:9px;cursor:pointer}
+.menu button:hover{background:rgba(255,255,255,.08)}
+.menu .muted{padding:.3rem .6rem;overflow:hidden;text-overflow:ellipsis}
+.modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(2,12,24,.55);padding:1rem}
+.modal-card{width:min(380px,100%);padding:1.3rem;display:grid;gap:.5rem;background:rgba(9,36,58,.94)}
+.modal-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.3rem}
