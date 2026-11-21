@@ -210,3 +210,8 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .amex-stat span{font-size:.72rem;color:var(--muted)}
 .cat{display:flex;justify-content:space-between;font-size:.84rem;padding:.2rem 0}
 .placeholder{font-size:.8rem;color:var(--muted);border:1px dashed var(--line);border-radius:12px;padding:.55rem .7rem;margin-top:.7rem}
+
+.amex-stat span{display:block}
+.bar.thin{height:3px;margin:.05rem 0 .3rem}
+.credit.off{opacity:.55}
+.cat small{font-size:.7rem}

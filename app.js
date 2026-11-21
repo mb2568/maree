@@ -432,9 +432,9 @@ $("#holdForm").onsubmit = async (e) => {
   if (error) toast("Couldn't save holding"); $("#holdTicker").value = $("#holdWeight").value = ""; loadHoldings();
 };
 
-/* ---------------- Amex credits (manual) ---------------- */
+/* ---------------- Amex: tracked credits (from the Amex read) + manual fallback ---------------- */
 let credits = [], marks = {};
-function periodKey(period, d = new Date()) {
+function periodKey(period) {
   const [y, m] = todayISO().split("-").map(Number);
   if (period === "monthly") return `${y}-${String(m).padStart(2, "0")}`;
   if (period === "quarterly") return `${y}-Q${Math.ceil(m / 3)}`;
@@ -443,21 +443,10 @@ function periodKey(period, d = new Date()) {
 }
 function periodLabel(period) {
   const [y, m] = todayISO().split("-").map(Number);
+  if (period === "monthly") return "Monthly";
   if (period === "quarterly") { const q = Math.ceil(m / 3); const end = new Date(y, q * 3, 0); return `Q${q} · ends ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`; }
   if (period === "semiannual") return m <= 6 ? "Jan–Jun · ends Jun 30" : "Jul–Dec · ends Dec 31";
-  return "";
-}
-function renderAmex(a) {
-  // Filled by a signed-in Amex run (digest.payload.amex); until then a quiet placeholder.
-  if (!a) return `<div class="placeholder">Balances, spending by category, points and suggestions appear here once Amex is connected.</div>`;
-  const money = (v) => v == null ? "—" : "$" + nf(v, 0);
-  let h = `<div class="money-sec"><h3>Account${a.as_of ? " · as of " + esc(new Date(a.as_of).toLocaleDateString("en-US", { month: "short", day: "numeric" })) : ""}</h3><div class="amex-grid">`;
-  for (const c of a.cards || []) h += `<div class="amex-stat"><b>${money(c.statement_balance)}</b><span>${esc(c.card)} statement${c.due_date ? " · due " + esc(fmtDay(c.due_date, { month: "short", day: "numeric" })) : ""}</span></div>`;
-  if (a.points != null) h += `<div class="amex-stat"><b>${nf(a.points, 0)}</b><span>Membership Rewards</span></div>`;
-  h += `</div></div>`;
-  if (a.spending?.length) h += `<div class="money-sec"><h3>Spending this month</h3>${a.spending.map((s) => `<div class="cat"><span>${esc(s.category)}</span><span>${money(s.amount)}</span></div>`).join("")}</div>`;
-  if (a.suggestions?.length) h += `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
-  return h;
+  return `${y} · ends Dec 31`;
 }
 function creditAmount(c) { const m = +todayISO().split("-")[1]; return c.id === "plat_uber" && m === 12 ? 35 : Number(c.amount); }
 async function loadCredits() {
@@ -469,33 +458,79 @@ async function loadCredits() {
   (ms || []).forEach((m) => marks[m.credit_id + "|" + m.period_key] = m.used);
   renderCredits();
 }
+const money = (v, d = 0) => v == null ? "—" : "$" + nf(v, d);
 function renderCredits() {
   const el = $("#moneyBody");
-  if (!credits.length) { el.innerHTML = `<p class="empty">No credits loaded.</p>`; return; }
-  const month = new Date().toLocaleDateString("en-US", { month: "long", timeZone: TZ });
-  const daysLeft = (() => { const [y, m, d] = todayISO().split("-").map(Number); return new Date(y, m, 0).getDate() - d; })();
-  let html = `<div class="small muted">${month} · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month</div>`;
-  for (const card of ["Platinum", "Gold"]) {
-    const monthly = credits.filter((c) => c.card === card && c.period === "monthly");
-    const tot = monthly.reduce((s, c) => s + creditAmount(c), 0);
-    const used = monthly.filter((c) => marks[c.id + "|" + periodKey(c.period)]).reduce((s, c) => s + creditAmount(c), 0);
-    html += `<div class="money-sec"><div class="cardsum"><h3>${card}</h3><b>$${nf(used, 0)} used · $${nf(tot - used, 0)} left</b></div>
-      <div class="bar"><i style="width:${tot ? used / tot * 100 : 0}%"></i></div>
-      ${credits.filter((c) => c.card === card).map((c) => {
+  const amex = digest?.amex || null;
+  const tracked = Object.fromEntries((amex?.credits || []).map((c) => [c.id, c]));
+  const pill = $("#moneyCard .pill");
+  if (pill) { pill.textContent = amex ? "Amex · " + new Date(amex.as_of).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" : "manual until Amex is connected"; pill.classList.toggle("warn", !amex); }
+  let html = renderAccounts(amex);
+  if (credits.length) {
+    const [y, m, d] = todayISO().split("-").map(Number); const daysLeft = new Date(y, m, 0).getDate() - d;
+    html += `<div class="money-sec"><h3>Credits</h3><div class="small muted">${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month</div></div>`;
+    for (const card of ["Platinum", "Gold"]) {
+      const list = credits.filter((c) => c.card === card);
+      const state = (c) => {
+        const t = tracked[c.id]; const amt = creditAmount(c);
+        if (c.status && c.status !== "active") return { amt, left: null, used: 0, off: true, src: "amex", label: c.status === "locked" ? "Not unlocked" : "Not enrolled" };
+        if (t && t.left != null) return { amt, left: t.left, used: Math.max(0, (t.amount ?? amt) - t.left), src: "amex", label: t.note };
+        if (t && t.note) return { amt, left: null, used: 0, src: "amex", label: t.note };
         const on = !!marks[c.id + "|" + periodKey(c.period)];
-        return `<div class="credit"><div class="cn">${esc(c.name)}<small>${c.period === "monthly" ? "Monthly" : esc(periodLabel(c.period))}${c.note ? " · " + esc(c.note) : ""}</small></div>
-          <span class="amt">$${nf(creditAmount(c), 0)}</span>
-          <button class="toggle" role="switch" aria-checked="${on}" aria-label="Mark ${esc(c.name)} used" data-id="${esc(c.id)}"></button></div>`;
-      }).join("")}</div>`;
+        return { amt, left: on ? 0 : amt, used: on ? amt : 0, src: "manual" };
+      };
+      const monthly = list.filter((c) => c.period === "monthly" && (!c.status || c.status === "active"));
+      const tot = monthly.reduce((s, c) => s + creditAmount(c), 0);
+      const used = monthly.reduce((s, c) => s + state(c).used, 0);
+      html += `<div class="money-sec"><div class="cardsum"><h3>${card}</h3><b>${money(used)} used · ${money(tot - used)} left this month</b></div>
+        <div class="bar"><i style="width:${tot ? Math.min(100, used / tot * 100) : 0}%"></i></div>
+        ${list.map((c) => {
+          const st = state(c);
+          const right = st.off ? `<span class="tag">${esc(st.label)}</span>`
+            : st.src === "amex" ? (st.left == null ? `<span class="tag">${esc(st.label || "pending")}</span>` : `<span class="amt">${money(st.left, st.left % 1 ? 2 : 0)} left</span>`)
+            : `<span class="amt">${money(st.amt)}</span><button class="toggle" role="switch" aria-checked="${st.used > 0}" aria-label="Mark ${esc(c.name)} used" data-id="${esc(c.id)}"></button>`;
+          return `<div class="credit${st.off ? " off" : ""}"><div class="cn">${esc(c.name)}<small>${esc(periodLabel(c.period))} · ${money(st.amt, st.amt % 1 ? 2 : 0)}${c.note && !st.off ? " · " + esc(c.note) : ""}</small></div>${right}</div>`;
+        }).join("")}</div>`;
+    }
   }
-  html += renderAmex(digest?.amex);
-  el.innerHTML = html;
+  html += renderSpending(amex) + renderSuggestions(amex);
+  el.innerHTML = html || `<p class="empty">No credits loaded.</p>`;
   el.querySelectorAll(".toggle").forEach((b) => b.onclick = async () => {
     const c = credits.find((x) => x.id === b.dataset.id); const k = periodKey(c.period); const used = !marks[c.id + "|" + k];
     marks[c.id + "|" + k] = used; renderCredits();
     const { error } = await sb.from("credit_marks").upsert({ credit_id: c.id, period_key: k, used, updated_at: new Date().toISOString() });
     if (error) { toast("Couldn't save"); loadCredits(); }
   });
+}
+function renderAccounts(a) {
+  if (!a) return `<div class="placeholder">Balances, spending by category, points and suggestions appear here once Amex is connected.</div>`;
+  let h = `<div class="amex-grid">`;
+  for (const c of a.cards || []) {
+    const sub = c.due_date ? `due ${esc(fmtDay(c.due_date, { month: "short", day: "numeric" }))}${c.min_due != null ? " · min " + money(c.min_due, 2) : ""}${c.autopay ? " · AutoPay" : ""}` : esc(c.note || "");
+    h += `<div class="amex-stat"><span>${esc(c.card)}${c.last4 ? " ··" + esc(c.last4) : ""}</span><b>${money(c.statement_balance, 2)}</b><span>statement · ${sub}</span>
+      <span>${esc(c.total_label || "total balance")} ${money(c.total_balance, 2)}</span></div>`;
+  }
+  if (a.points != null) h += `<div class="amex-stat"><span>Membership Rewards</span><b>${nf(a.points, 0)}</b><span>points</span></div>`;
+  h += `</div>`;
+  const wo = (a.cards || []).find((c) => c.welcome_offer)?.welcome_offer;
+  if (wo) h += `<div class="money-sec"><div class="cardsum"><h3>Platinum welcome offer</h3><b>${money(wo.spent)} of ${money(wo.target)}</b></div>
+    <div class="bar"><i style="width:${Math.min(100, wo.spent / wo.target * 100)}%"></i></div>
+    <div class="small muted">${money(wo.target - wo.spent)} to go · by ${esc(fmtDay(wo.expires, { month: "short", day: "numeric", year: "numeric" }))}</div></div>`;
+  return h;
+}
+function renderSpending(a) {
+  const cards = a?.spending?.cards; if (!cards?.length) return "";
+  return `<div class="money-sec"><h3>Spending · statement period</h3>${cards.map((c) => {
+    const mx = Math.max(...c.categories.map((x) => x.amount), 1);
+    const delta = c.prev_total != null ? ` <span class="muted small">prev ${money(c.prev_total)}</span>` : "";
+    return `<div style="margin-top:.5rem"><div class="cardsum"><span class="small">${esc(c.card)} · ${esc(c.period)}</span><b>${money(c.total, 2)}${delta}</b></div>
+      ${c.categories.map((x) => `<div class="cat" title="${esc(x.note || "")}"><span>${esc(x.category)}${x.note ? ` <small class="muted">${esc(x.note)}</small>` : ""}</span><span>${money(x.amount, 2)}</span></div>
+      <div class="bar thin"><i style="width:${x.amount / mx * 100}%"></i></div>`).join("")}</div>`;
+  }).join("")}</div>`;
+}
+function renderSuggestions(a) {
+  if (!a?.suggestions?.length) return "";
+  return `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
 }
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
