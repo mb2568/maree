@@ -137,8 +137,8 @@ async function boot(user) {
   renderHeader();
   setupPlans();
   setMktView(mktView);
-  await Promise.all([loadDigest(), loadPlans(), loadCredits(), loadHoldings(), loadMarkets(), loadFx()]);
-  weather(false);
+  weather(false); // never gated on the data loads (one failed load used to stop weather from ever starting)
+  await Promise.allSettled([loadDigest(), loadPlans(), loadCredits(), loadHoldings(), loadMarkets(), loadFx()]);
   setInterval(() => { if (document.visibilityState === "visible") weather(false); }, 15 * 60 * 1000);
   sb.channel("live")
     .on("postgres_changes", { event: "*", schema: "public", table: "plans" }, () => loadPlans())
@@ -167,39 +167,65 @@ const WMO = { 0: ["☀️", "Clear"], 1: ["🌤️", "Mostly clear"], 2: ["⛅",
   66: ["🌧️", "Freezing rain"], 67: ["🌧️", "Freezing rain"], 71: ["🌨️", "Light snow"], 73: ["🌨️", "Snow"], 75: ["❄️", "Heavy snow"], 77: ["🌨️", "Snow grains"],
   80: ["🌦️", "Showers"], 81: ["🌦️", "Showers"], 82: ["⛈️", "Heavy showers"], 85: ["🌨️", "Snow showers"], 86: ["🌨️", "Snow showers"], 95: ["⛈️", "Thunderstorm"], 96: ["⛈️", "Thunderstorm"], 99: ["⛈️", "Thunderstorm"] };
 $("#weather").onclick = () => weather(true);
-// Root-cause fix: we used to skip the fetch unless navigator.permissions said "granted" (iOS
-// home-screen apps report "prompt" even after you allow it), accepted a 30-min-old cached fix,
-// and only ran once at boot. Now: show last known place instantly, always request a fresh fix
-// on open / when the app comes back to the foreground / every 15 min, and fall back to the
-// last known coordinates if the fix fails.
+// Location chain (Nov 21 fix): device GPS (8s) -> IP location (geojs.io, no key) -> last known -> Washington, DC.
+// Weather always shows something; a device-location error is shown as a small note with its code, and a tap retries.
 let wxBusy = false;
-async function renderWeather(la, lo, label) {
-  const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la.toFixed(3)}&longitude=${lo.toFixed(3)}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1&_=${Date.now()}`, { cache: "no-store" }).then((r) => r.json());
+const DC = { la: 38.907, lo: -77.037, place: "Washington, DC" };
+const GEO_ERR = { 1: "location permission denied", 2: "location unavailable (check macOS/iOS Location Services for this browser)", 3: "location timed out" };
+async function renderWeather(la, lo, label, note) {
+  const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+la).toFixed(3)}&longitude=${(+lo).toFixed(3)}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`, { cache: "no-store" });
+  if (!r.ok) throw new Error("Open-Meteo HTTP " + r.status);
+  const w = await r.json();
   const [ico, desc] = WMO[w.current.weather_code] || ["◌", ""];
   $("#wxIcon").textContent = ico;
   $("#wxTemp").textContent = Math.round(w.current.temperature_2m) + "°F";
-  $("#wxDesc").textContent = `${desc} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}°${label ? " · " + label : ""}`;
+  $("#wxDesc").textContent = `${desc} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}°${label ? " · " + label : ""}${note ? " · " + note : ""}`;
+  $("#weather").title = note ? "Approximate location — tap to retry device location" : "Tap to refresh";
 }
 async function placeName(la, lo) {
   try { const g = await fetch(`https://api-bdc.io/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=en`).then((r) => r.json()); return g.city || g.locality || g.principalSubdivision || ""; } catch { return ""; }
 }
+function devicePosition(ms) {
+  return new Promise((res, rej) => {
+    if (!("geolocation" in navigator)) return rej({ code: 2, message: "no geolocation API" });
+    const t = setTimeout(() => rej({ code: 3, message: "timeout (watchdog)" }), ms + 1500); // also covers a prompt that never resolves
+    navigator.geolocation.getCurrentPosition((p) => { clearTimeout(t); res(p); }, (e) => { clearTimeout(t); rej(e); },
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: ms });
+  });
+}
+async function ipLocation() {
+  const g = await fetch("https://get.geojs.io/v1/ip/geo.json", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("geojs " + r.status); return r.json(); });
+  const la = parseFloat(g.latitude), lo = parseFloat(g.longitude);
+  if (!isFinite(la) || !isFinite(lo)) throw new Error("geojs: no coordinates");
+  return { la, lo, place: g.city || g.region || "" };
+}
 async function weather(userTap) {
+  if (wxBusy) return; wxBusy = true;
   const last = JSON.parse(localStorage.getItem("maree_loc") || "null");
   if (last) renderWeather(last.la, last.lo, last.place).catch(() => {});
-  if (!("geolocation" in navigator) || wxBusy) return;
-  wxBusy = true;
-  if (!last) $("#wxDesc").textContent = "Locating…";
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    wxBusy = false;
-    const la = pos.coords.latitude, lo = pos.coords.longitude;
-    const moved = !last || Math.abs(last.la - la) > 0.05 || Math.abs(last.lo - lo) > 0.05;
-    const place = moved ? await placeName(la, lo) : last.place;
-    localStorage.setItem("maree_loc", JSON.stringify({ la, lo, place, at: Date.now() }));
-    try { await renderWeather(la, lo, place); } catch { if (!last) $("#wxDesc").textContent = "Weather unavailable"; }
-  }, (err) => {
-    wxBusy = false;
-    if (!last) $("#wxDesc").textContent = err.code === 1 ? "Allow location for weather" : "Couldn't get location — tap to retry";
-  }, { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 20000 });
+  else if ($("#wxTemp").textContent === "—") $("#wxDesc").textContent = "Locating…";
+  try {
+    let loc, note = "";
+    try {
+      const pos = await devicePosition(8000);
+      const la = pos.coords.latitude, lo = pos.coords.longitude;
+      const moved = !last || last.approx || Math.abs(last.la - la) > 0.05 || Math.abs(last.lo - lo) > 0.05;
+      loc = { la, lo, place: moved ? await placeName(la, lo) : last.place };
+      localStorage.setItem("maree_loc", JSON.stringify({ ...loc, at: Date.now() }));
+    } catch (err) {
+      console.warn("[weather] geolocation error", err.code, err.message);
+      note = "approx. (" + (GEO_ERR[err.code] || "location error " + err.code) + ")";
+      if (last && !last.approx) loc = last; // a real fix from before beats an IP guess
+      else {
+        try { loc = await ipLocation(); localStorage.setItem("maree_loc", JSON.stringify({ ...loc, approx: true, at: Date.now() })); }
+        catch (e2) { console.warn("[weather] IP location failed", e2.message); loc = last || DC; }
+      }
+    }
+    await renderWeather(loc.la, loc.lo, loc.place, note);
+  } catch (e) {
+    console.warn("[weather] forecast failed", e.message);
+    $("#wxDesc").textContent = "Weather unavailable (" + (e.message || "network") + ") — tap to retry";
+  } finally { wxBusy = false; }
 }
 
 /* ---------------- plans ---------------- */
@@ -312,17 +338,27 @@ function renderNotifs(n) {
       <div class="nsnip">${esc(m.snippet || "")} · ${m.date ? esc(relTime(m.date)) : ""}</div></div></li>`;
   }).join("") : `<li class="empty">No new messages from people.</li>`) + (n.note ? `<li class="off"><div class="nbody nsnip">${esc(n.note)}</div></li>` : "") + off;
 }
-const NEWS_TABS = [["tech", "Tech"], ["business", "Business"], ["france", "France"], ["brazil", "Brazil"], ["datadog", "Datadog"], ["barrons", "Your holdings"]];
+const NEWS_TABS = [["tech", "Tech"], ["business", "Business"], ["france", "France"], ["brazil", "Brazil"], ["datadog", "Datadog"]];
+const dateLabel = (i) => i.published ? (Date.now() - new Date(i.published) < 3 * 864e5 && i.published.length > 10 ? relTime(i.published) : new Date(i.published.length === 10 ? i.published + "T12:00:00" : i.published).toLocaleDateString("en-US", { month: "short", day: "numeric" })) : (i.date_label || "");
+function newsItem(i) {
+  const tag = i.tag ? `<span class="ntag ${/^Exclusive/.test(i.tag) ? "ex" : ""}">${esc(i.tag)}</span>` : "";
+  return `<li>${tag}<a href="${esc(safeUrl(i.url))}" target="_blank" rel="noopener">${esc(i.title)}</a>
+    ${i.dek ? `<div class="ndek">${esc(i.dek)}</div>` : ""}
+    <div class="nmeta"><span>${esc(i.source || "")}</span>${dateLabel(i) ? `<span>${esc(dateLabel(i))}</span>` : ""}${(i.tickers || []).map((t) => `<span class="tk">${esc(t)}</span>`).join("")}</div></li>`;
+}
 function renderNews(news) {
-  const tabs = news?.wsj_exclusives?.length ? [["wsj_exclusives", "WSJ+"], ...NEWS_TABS] : NEWS_TABS;
-  $("#newsTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" data-k="${k}" class="${k === newsTab ? "on" : ""}">${l}</button>`).join("");
+  if (!NEWS_TABS.some(([k]) => k === newsTab)) newsTab = "tech";
+  $("#newsTabs").innerHTML = NEWS_TABS.map(([k, l]) => `<button role="tab" data-k="${k}" class="${k === newsTab ? "on" : ""}">${l}</button>`).join("");
   $("#newsTabs").querySelectorAll("button").forEach((b) => b.onclick = () => { newsTab = b.dataset.k; renderNews(news); });
+  const m = news?.wsj_meta, pill = $("#newsPill");
+  pill.textContent = m ? "WSJ · " + new Date(m.as_of).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" + (m.stale ? " · stale" : "") : "";
+  pill.classList.toggle("warn", !!m?.stale); pill.classList.toggle("hidden", !m);
   const el = $("#newsList");
   if (!news) { el.innerHTML = `<li class="empty">Waiting for the morning digest.</li>`; return; }
-  const items = newsTab === "barrons" ? news.barrons : newsTab === "datadog" ? news.datadog : newsTab === "wsj_exclusives" ? news.wsj_exclusives : news.wsj?.[newsTab];
-  if (!items?.length) { el.innerHTML = `<li class="empty">${newsTab === "datadog" && !("datadog" in news) ? "Datadog news starts with the next morning refresh." : "No fresh headlines here this morning."}</li>`; return; }
-  el.innerHTML = items.map((i) => `<li><a href="${esc(safeUrl(i.url))}" target="_blank" rel="noopener">${esc(i.title)}</a>
-    <div class="nmeta"><span>${esc(i.source || (newsTab === "barrons" ? "Barron's" : newsTab === "datadog" ? "" : "WSJ"))}</span>${i.published ? `<span>${esc(relTime(i.published))}</span>` : ""}${(i.tickers || []).map((t) => `<span class="tk">${esc(t)}</span>`).join("")}</div></li>`).join("");
+  const items = newsTab === "datadog" ? news.datadog : news.wsj?.[newsTab];
+  if (!items?.length) { el.innerHTML = `<li class="empty">No fresh headlines here this morning.</li>`; return; }
+  el.innerHTML = items.map(newsItem).join("");
+  renderHoldNews();
 }
 function renderAdeline(a) {
   const el = $("#adelineBody");
@@ -388,29 +424,36 @@ function setMktView(v) {
 }
 document.querySelectorAll("#mktSeg button").forEach((b) => b.onclick = () => setMktView(b.dataset.v));
 const barronsQuote = (t) => `https://www.barrons.com/market-data/stocks/${t.toLowerCase()}`;
+let holdQuotes = {}, holdFilter = null;
 async function loadHoldingQuotes() {
-  const el = $("#holdTiles");
-  if (!holdings.length) { el.innerHTML = `<p class="empty">No holdings yet. Add them below.</p>`; return; }
-  if (!el.innerHTML) el.innerHTML = `<div class="skel"></div><div class="skel"></div>`;
+  if (!holdings.length) { renderHoldNews(); return; }
   try {
-    const syms = holdings.map((h) => h.ticker).join(",");
+    const syms = holdings.filter((h) => h.track_news).map((h) => h.ticker).join(",");
     const { data, error } = await sb.functions.invoke("markets?symbols=" + encodeURIComponent(syms), { method: "GET" });
     if (error) throw error;
-    const byT = Object.fromEntries(data.quotes.map((q) => [q.ticker, q]));
-    el.innerHTML = holdings.map((h) => {
-      const q = byT[h.ticker] || { error: 1 }; const up = (q.changePct ?? 0) >= 0;
-      return `<a class="tile" href="${esc(barronsQuote(h.ticker))}" target="_blank" rel="noopener" title="Open on Barron's">
-        <div class="nm">${esc(h.ticker)}${h.weight != null ? `<span class="wt">${nf(h.weight, 1)}%</span>` : ""}</div>
-        <div class="px">${q.error ? "—" : "$" + nf(q.last)}</div>
-        ${q.error ? `<div class="ch muted">unavailable</div>` : `<div class="ch ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${nf(Math.abs(q.changePct ?? 0))}%</div>${spark(q.closes, up)}`}</a>`;
-    }).join("");
-  } catch { el.innerHTML = `<p class="empty">Holding prices are unavailable right now.</p>`; }
+    holdQuotes = Object.fromEntries(data.quotes.map((q) => [q.ticker, q]));
+  } catch { holdQuotes = {}; }
+  renderHoldNews();
 }
+function renderHoldNews() {
+  const all = digest?.news?.holdings || digest?.news?.barrons || [];
+  const tracked = holdings.filter((h) => h.track_news).map((h) => h.ticker);
+  const withNews = tracked.filter((t) => all.some((i) => (i.tickers || []).includes(t)));
+  if (holdFilter && !withNews.includes(holdFilter)) holdFilter = null;
+  $("#holdChips").innerHTML = `<button class="hchip ${!holdFilter ? "on" : ""}" data-t="">All</button>` + withNews.map((t) => {
+    const q = holdQuotes[t]; const ch = q && !q.error && q.changePct != null ? `<span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "+" : "−"}${nf(Math.abs(q.changePct), 1)}%</span>` : "";
+    return `<button class="hchip ${holdFilter === t ? "on" : ""}" data-t="${esc(t)}">${esc(t)} ${ch}</button>`;
+  }).join("");
+  $("#holdChips").querySelectorAll(".hchip").forEach((b) => b.onclick = () => { holdFilter = b.dataset.t || null; renderHoldNews(); });
+  const items = all.filter((i) => !holdFilter || (i.tickers || []).includes(holdFilter));
+  $("#holdNews").innerHTML = !digest ? `<li class="empty">Waiting for the morning digest.</li>` : items.length ? items.map(newsItem).join("") : `<li class="empty">No recent stories on your holdings.</li>`;
+}
+$("#holdEditBtn").onclick = () => { const d = $("#holdEditor"); d.open = !d.open; if (d.open) d.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
 
 let holdings = [];
 async function loadHoldings() {
   const { data } = await sb.from("holdings").select("*").order("weight", { ascending: false, nullsFirst: false });
-  holdings = data || []; renderHoldings(); if (mktView === "holdings") loadHoldingQuotes();
+  holdings = data || []; renderHoldings(); renderHoldNews(); if (mktView === "holdings") loadHoldingQuotes();
 }
 function renderHoldings() {
   $("#holdList").innerHTML = holdings.map((h) => `<li class="hold ${h.track_news ? "" : "off"}" data-t="${esc(h.ticker)}">
@@ -534,4 +577,20 @@ function renderSuggestions(a) {
   return `<div class="money-sec"><h3>Suggestions</h3><ul class="roles">${a.suggestions.filter((s) => !/\bOura\b|Uber One/i.test(s)).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
 }
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+/* ---------------- stay on the latest deploy ----------------
+   index.html loads app.js?v=<APP_VERSION>; version.json is fetched uncached on open/foreground and if the
+   deployed version differs we reload once (also when a new service worker takes control). */
+const APP_VERSION = "2026-11-21.3";
+async function checkVersion() {
+  try {
+    const { v } = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
+    if (v && v !== APP_VERSION && sessionStorage.getItem("maree_reloaded") !== v) { sessionStorage.setItem("maree_reloaded", v); location.reload(); }
+  } catch {}
+}
+checkVersion();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkVersion(); });
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded && navigator.serviceWorker.controller) { reloaded = true; location.reload(); } });
+}

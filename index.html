@@ -15,7 +15,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="app.css?v=2026-11-21.3">
 </head>
 <body>
 <div class="sky" aria-hidden="true"><div class="sun"></div></div>
@@ -121,8 +121,10 @@
         <div class="tiles fx" id="fxTiles"></div>
       </div>
       <div id="holdView" class="hidden">
-        <div class="tiles" id="holdTiles"></div>
-        <details class="holdings">
+        <div class="hold-bar"><div class="hchips" id="holdChips"></div>
+          <button class="icon-btn sm" id="holdEditBtn" title="Edit holdings" aria-label="Edit holdings">⚙︎</button></div>
+        <ul class="news-list" id="holdNews"></ul>
+        <details class="holdings" id="holdEditor">
           <summary class="small">Edit holdings</summary>
           <ul id="holdList" class="hold-list"></ul>
           <form class="add" id="holdForm">
@@ -130,14 +132,14 @@
             <input id="holdWeight" placeholder="Weight %" inputmode="decimal" style="max-width:7rem">
             <button class="btn primary sm" type="submit">Add</button>
           </form>
-          <p class="small muted">◉ = included in the morning Barron's news.</p>
+          <p class="small muted">◉ = news tracked in the morning refresh (Barron's + WSJ).</p>
         </details>
       </div>
       <div class="small muted" id="mktMeta" style="margin-top:.5rem"></div>
     </section>
 
     <section class="card glass news" id="newsCard">
-      <div class="card-h"><h2>News</h2>
+      <div class="card-h"><h2>News <span class="small muted pill" id="newsPill"></span></h2>
         <div class="seg scroll" id="newsTabs" role="tablist"></div>
       </div>
       <ul class="news-list" id="newsList"></ul>
@@ -177,6 +179,6 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=2026-11-21.3"></script>
 </body>
 </html>
