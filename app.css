@@ -189,3 +189,14 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .modal-card{width:min(380px,100%);padding:1.3rem;display:grid;gap:.5rem;background:rgba(9,36,58,.94)}
 .modal-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.3rem}
 .today{position:relative;z-index:10}
+
+.pin-input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.pin-dots{display:flex;justify-content:center;gap:1rem;margin:.6rem 0 1rem}
+.pin-dots i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--accent);transition:.12s}
+.pin-dots i.on{background:var(--accent)}
+.pin-dots.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-8px)}50%{transform:translateX(8px)}75%{transform:translateX(-4px)}}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;max-width:280px;margin:0 auto}
+.pinpad button{font:inherit;font-size:1.35rem;height:60px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:var(--text);cursor:pointer}
+.pinpad button:active{background:rgba(124,196,232,.25)}
+#pwWrap{display:grid;gap:.55rem}

@@ -27,20 +27,47 @@ function toast(msg, action) {
   t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 4500);
 }
 
-/* ---------------- auth: email + password, signed in once per device ---------------- */
+/* ---------------- auth: email + 4-digit PIN, signed in once per device ---------------- */
+const PIN_PREFIX = "maree-"; // Supabase password = prefix + PIN (meets minimum length)
+let pinMode = true, busy = false;
 function showAuth() {
   $("#app").classList.add("hidden"); $("#auth").classList.remove("hidden");
-  const last = localStorage.getItem("maree_email"); if (last) $("#email").value = last;
+  $("#email").value = localStorage.getItem("maree_email") || "mb2568@georgetown.edu";
+  setTimeout(() => $("#pin").focus(), 50);
 }
-$("#loginForm").onsubmit = async (e) => {
-  e.preventDefault();
+function drawDots() { const n = $("#pin").value.length; document.querySelectorAll(".pin-dots i").forEach((d, i) => d.classList.toggle("on", i < n)); }
+async function login(password) {
+  if (busy) return; busy = true;
   const email = $("#email").value.trim().toLowerCase();
   $("#authMsg").textContent = "Signing in…";
-  const { error } = await sb.auth.signInWithPassword({ email, password: $("#password").value });
-  if (error) { $("#authMsg").textContent = /invalid/i.test(error.message) ? "Wrong email or password." : error.message; return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  busy = false;
+  if (error) {
+    $("#authMsg").textContent = /invalid/i.test(error.message) ? (pinMode ? "Wrong PIN." : "Wrong email or password.") : error.message;
+    if (pinMode) { $("#pin").value = ""; drawDots(); const d = $(".pin-dots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake"); $("#pin").focus(); }
+    return;
+  }
   localStorage.setItem("maree_email", email);
-  $("#password").value = ""; $("#authMsg").textContent = "";
+  $("#pin").value = ""; $("#password").value = ""; drawDots(); $("#authMsg").textContent = "";
+}
+$("#pin").addEventListener("input", () => {
+  const p = $("#pin"); p.value = p.value.replace(/\D/g, "").slice(0, 4); drawDots();
+  if (p.value.length === 4) login(PIN_PREFIX + p.value);
+});
+$("#pinpad").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const p = $("#pin");
+  if (b.dataset.k === "back") p.value = p.value.slice(0, -1); else if (p.value.length < 4) p.value += b.textContent;
+  p.dispatchEvent(new Event("input"));
+});
+$(".pin-dots").onclick = () => $("#pin").focus();
+$("#modeToggle").onclick = () => {
+  pinMode = !pinMode;
+  $("#pinWrap").classList.toggle("hidden", !pinMode); $("#pwWrap").classList.toggle("hidden", pinMode);
+  $("#modeToggle").textContent = pinMode ? "Use a password instead" : "Use PIN instead"; $("#authMsg").textContent = "";
+  (pinMode ? $("#pin") : $("#password")).focus();
 };
+$("#loginForm").onsubmit = (e) => { e.preventDefault(); if (pinMode) { if ($("#pin").value.length === 4) login(PIN_PREFIX + $("#pin").value); } else login($("#password").value); };
 $("#signOut").onclick = async () => { await sb.auth.signOut(); location.reload(); };
 $("#menuBtn").onclick = (e) => { e.stopPropagation(); const m = $("#menu"); const open = m.classList.toggle("hidden") === false; $("#menuBtn").setAttribute("aria-expanded", open); };
 document.addEventListener("click", (e) => { if (!e.target.closest(".menu-wrap")) $("#menu").classList.add("hidden"); });
@@ -49,12 +76,12 @@ $("#pwCancel").onclick = () => $("#pwModal").classList.add("hidden");
 $("#pwForm").onsubmit = async (e) => {
   e.preventDefault();
   const a = $("#newPw").value, b = $("#newPw2").value;
-  if (a.length < 8) { $("#pwMsg").textContent = "Use at least 8 characters."; return; }
-  if (a !== b) { $("#pwMsg").textContent = "Passwords don't match."; return; }
+  if (!/^\d{4}$/.test(a)) { $("#pwMsg").textContent = "PIN must be exactly 4 digits."; return; }
+  if (a !== b) { $("#pwMsg").textContent = "PINs don't match."; return; }
   $("#pwMsg").textContent = "Saving…";
-  const { error } = await sb.auth.updateUser({ password: a });
+  const { error } = await sb.auth.updateUser({ password: PIN_PREFIX + a });
   if (error) { $("#pwMsg").textContent = error.message; return; }
-  $("#pwModal").classList.add("hidden"); toast("Password updated");
+  $("#pwModal").classList.add("hidden"); toast("PIN updated");
 };
 
 let started = false;
