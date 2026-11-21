@@ -166,67 +166,71 @@ const WMO = { 0: ["☀️", "Clear"], 1: ["🌤️", "Mostly clear"], 2: ["⛅",
   51: ["🌦️", "Drizzle"], 53: ["🌦️", "Drizzle"], 55: ["🌦️", "Drizzle"], 61: ["🌧️", "Light rain"], 63: ["🌧️", "Rain"], 65: ["🌧️", "Heavy rain"],
   66: ["🌧️", "Freezing rain"], 67: ["🌧️", "Freezing rain"], 71: ["🌨️", "Light snow"], 73: ["🌨️", "Snow"], 75: ["❄️", "Heavy snow"], 77: ["🌨️", "Snow grains"],
   80: ["🌦️", "Showers"], 81: ["🌦️", "Showers"], 82: ["⛈️", "Heavy showers"], 85: ["🌨️", "Snow showers"], 86: ["🌨️", "Snow showers"], 95: ["⛈️", "Thunderstorm"], 96: ["⛈️", "Thunderstorm"], 99: ["⛈️", "Thunderstorm"] };
-$("#weather").onclick = () => weather(true);
-// Location chain (Nov 21 fix): device GPS (8s) -> IP location (geojs.io, no key) -> last known -> Washington, DC.
-// Weather always shows something; a device-location error is shown as a small note with its code, and a tap retries.
+$("#weather").onclick = (e) => { if (e.target.closest(".wx-place")) { e.stopPropagation(); openCityPicker(); } else weather(true); };
+// Location order (Nov 21): a city Marlon picks by tapping the place name (pinned, per device) >
+// fresh browser GPS fix > last GPS fix > St. Helena Island, SC. No IP geolocation (it was the bug: geojs put him in
+// Lawrenceville). The best non-GPS location renders instantly; a GPS fix replaces it whenever it arrives.
 let wxBusy = false;
-const DC = { la: 38.907, lo: -77.037, place: "Washington, DC" };
-const GEO_ERR = { 1: "location permission denied", 2: "location unavailable (check macOS/iOS Location Services for this browser)", 3: "location timed out" };
-async function renderWeather(la, lo, label, note) {
-  const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+la).toFixed(3)}&longitude=${(+lo).toFixed(3)}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`, { cache: "no-store" });
+const HOME = { la: 32.38, lo: -80.57, place: "St. Helena Island, SC" };
+const GEO_ERR = { 1: "location blocked", 2: "location unavailable", 3: "location timed out" };
+const getJSON = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+async function renderWeather(loc, src) {
+  const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${(+loc.la).toFixed(3)}&longitude=${(+loc.lo).toFixed(3)}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`, { cache: "no-store" });
   if (!r.ok) throw new Error("Open-Meteo HTTP " + r.status);
   const w = await r.json();
   const [ico, desc] = WMO[w.current.weather_code] || ["◌", ""];
   $("#wxIcon").textContent = ico;
   $("#wxTemp").textContent = Math.round(w.current.temperature_2m) + "°F";
-  $("#wxDesc").textContent = `${desc} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}°${label ? " · " + label : ""}${note ? " · " + note : ""}`;
-  $("#weather").title = note ? "Approximate location — tap to retry device location" : "Tap to refresh";
+  $("#wxDesc").innerHTML = `${esc(desc)} · H ${Math.round(w.daily.temperature_2m_max[0])}° L ${Math.round(w.daily.temperature_2m_min[0])}° · <span class="wx-place" role="button" tabindex="0" title="Change city">📍 ${esc(loc.place || "Set city")}</span> <span class="wx-src">${esc(src)}</span>`;
 }
 async function placeName(la, lo) {
   try { const g = await fetch(`https://api-bdc.io/data/reverse-geocode-client?latitude=${la}&longitude=${lo}&localityLanguage=en`).then((r) => r.json()); return g.city || g.locality || g.principalSubdivision || ""; } catch { return ""; }
 }
-function devicePosition(ms) {
-  return new Promise((res, rej) => {
-    if (!("geolocation" in navigator)) return rej({ code: 2, message: "no geolocation API" });
-    const t = setTimeout(() => rej({ code: 3, message: "timeout (watchdog)" }), ms + 1500); // also covers a prompt that never resolves
-    navigator.geolocation.getCurrentPosition((p) => { clearTimeout(t); res(p); }, (e) => { clearTimeout(t); rej(e); },
-      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: ms });
-  });
-}
-async function ipLocation() {
-  const g = await fetch("https://get.geojs.io/v1/ip/geo.json", { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error("geojs " + r.status); return r.json(); });
-  const la = parseFloat(g.latitude), lo = parseFloat(g.longitude);
-  if (!isFinite(la) || !isFinite(lo)) throw new Error("geojs: no coordinates");
-  return { la, lo, place: g.city || g.region || "" };
-}
 async function weather(userTap) {
-  if (wxBusy) return; wxBusy = true;
-  const last = JSON.parse(localStorage.getItem("maree_loc") || "null");
-  if (last) renderWeather(last.la, last.lo, last.place).catch(() => {});
-  else if ($("#wxTemp").textContent === "—") $("#wxDesc").textContent = "Locating…";
-  try {
-    let loc, note = "";
-    try {
-      const pos = await devicePosition(8000);
-      const la = pos.coords.latitude, lo = pos.coords.longitude;
-      const moved = !last || last.approx || Math.abs(last.la - la) > 0.05 || Math.abs(last.lo - lo) > 0.05;
-      loc = { la, lo, place: moved ? await placeName(la, lo) : last.place };
-      localStorage.setItem("maree_loc", JSON.stringify({ ...loc, at: Date.now() }));
-    } catch (err) {
-      console.warn("[weather] geolocation error", err.code, err.message);
-      note = "approx. (" + (GEO_ERR[err.code] || "location error " + err.code) + ")";
-      if (last && !last.approx) loc = last; // a real fix from before beats an IP guess
-      else {
-        try { loc = await ipLocation(); localStorage.setItem("maree_loc", JSON.stringify({ ...loc, approx: true, at: Date.now() })); }
-        catch (e2) { console.warn("[weather] IP location failed", e2.message); loc = last || DC; }
-      }
-    }
-    await renderWeather(loc.la, loc.lo, loc.place, note);
-  } catch (e) {
-    console.warn("[weather] forecast failed", e.message);
-    $("#wxDesc").textContent = "Weather unavailable (" + (e.message || "network") + ") — tap to retry";
-  } finally { wxBusy = false; }
+  const manual = getJSON("maree_loc_manual");
+  if (manual) { renderWeather(manual, "(your city)").catch(wxFail); return; }
+  const lastGps = getJSON("maree_loc_gps");
+  const interim = lastGps ? [lastGps, "(last GPS)"] : [HOME, "(default)"];
+  let gotFix = false;
+  if (!wxBusy || userTap) renderWeather(...interim).catch(wxFail);
+  if (!("geolocation" in navigator) || wxBusy) return;
+  wxBusy = true;
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    wxBusy = false; gotFix = true;
+    if (getJSON("maree_loc_manual")) return;
+    const la = pos.coords.latitude, lo = pos.coords.longitude;
+    const moved = !lastGps || Math.abs(lastGps.la - la) > 0.02 || Math.abs(lastGps.lo - lo) > 0.02;
+    const loc = { la, lo, place: (moved ? await placeName(la, lo) : lastGps.place) || "Your location", at: Date.now() };
+    localStorage.setItem("maree_loc_gps", JSON.stringify(loc));
+    renderWeather(loc, "(GPS)").catch(wxFail);
+  }, (err) => {
+    wxBusy = false;
+    console.warn("[weather] geolocation error", err.code, err.message);
+    if (!getJSON("maree_loc_manual")) renderWeather(interim[0], interim[1].replace(")", " · " + (GEO_ERR[err.code] || "error " + err.code) + ")")).catch(wxFail);
+  }, { enableHighAccuracy: false, maximumAge: 2 * 60 * 1000, timeout: 15000 });
 }
+function wxFail(e) { console.warn("[weather] forecast failed", e?.message); $("#wxDesc").textContent = "Weather unavailable (" + (e?.message || "network") + ") — tap to retry"; }
+localStorage.removeItem("maree_loc"); // old cache could hold an IP-based guess
+/* city picker (tap the 📍 place name) */
+function openCityPicker() {
+  $("#cityModal").classList.remove("hidden"); $("#cityQ").value = ""; $("#cityRes").innerHTML = ""; $("#cityQ").focus();
+  $("#cityAuto").classList.toggle("hidden", !getJSON("maree_loc_manual"));
+}
+let cityT;
+$("#cityQ").oninput = () => { clearTimeout(cityT); cityT = setTimeout(async () => {
+  const q = $("#cityQ").value.trim(); if (q.length < 2) { $("#cityRes").innerHTML = ""; return; }
+  try {
+    const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`).then((r) => r.json());
+    $("#cityRes").innerHTML = (g.results || []).map((c, i) => `<li><button type="button" data-i="${i}">${esc(c.name)}<span class="muted small"> · ${esc([c.admin1, c.country_code].filter(Boolean).join(", "))}</span></button></li>`).join("") || `<li class="small muted">No match</li>`;
+    $("#cityRes").querySelectorAll("button").forEach((b) => b.onclick = () => {
+      const c = g.results[+b.dataset.i];
+      localStorage.setItem("maree_loc_manual", JSON.stringify({ la: c.latitude, lo: c.longitude, place: c.name + (c.admin1_code || c.admin1 ? ", " + (c.country_code === "US" ? (c.admin1_code || c.admin1) : c.country_code) : "") }));
+      $("#cityModal").classList.add("hidden"); weather(true);
+    });
+  } catch { $("#cityRes").innerHTML = `<li class="small muted">City search unavailable</li>`; }
+}, 250); };
+$("#cityAuto").onclick = () => { localStorage.removeItem("maree_loc_manual"); $("#cityModal").classList.add("hidden"); weather(true); };
+$("#cityCancel").onclick = () => $("#cityModal").classList.add("hidden");
 
 /* ---------------- plans ---------------- */
 let planKind = "todo", plans = [], showDone = false;
@@ -580,7 +584,7 @@ function renderSuggestions(a) {
 /* ---------------- stay on the latest deploy ----------------
    index.html loads app.js?v=<APP_VERSION>; version.json is fetched uncached on open/foreground and if the
    deployed version differs we reload once (also when a new service worker takes control). */
-const APP_VERSION = "2026-11-21.3";
+const APP_VERSION = "2026-11-21.4";
 async function checkVersion() {
   try {
     const { v } = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json());

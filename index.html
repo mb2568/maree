@@ -15,7 +15,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=2026-11-21.3">
+<link rel="stylesheet" href="app.css?v=2026-11-21.4">
 </head>
 <body>
 <div class="sky" aria-hidden="true"><div class="sun"></div></div>
@@ -157,6 +157,15 @@
   </div>
   <footer class="small muted foot" id="foot"></footer>
 </main>
+<div class="modal hidden" id="cityModal" role="dialog" aria-modal="true" aria-labelledby="cityTitle">
+  <div class="glass modal-card">
+    <h2 id="cityTitle">Weather city</h2>
+    <input id="cityQ" placeholder="Search a city…" autocomplete="off">
+    <ul class="city-res" id="cityRes"></ul>
+    <p class="small muted">Saved on this device. It's used instead of GPS until you switch back.</p>
+    <div class="modal-actions"><button type="button" class="btn ghost hidden" id="cityAuto">Use my GPS location</button><button type="button" class="btn ghost" id="cityCancel">Close</button></div>
+  </div>
+</div>
 <div class="modal hidden" id="pwModal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
   <form class="glass modal-card" id="pwForm">
     <h2 id="pwTitle">Change PIN</h2>
@@ -179,6 +188,6 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.min.js"></script>
-<script src="app.js?v=2026-11-21.3"></script>
+<script src="app.js?v=2026-11-21.4"></script>
 </body>
 </html>

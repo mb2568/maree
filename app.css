@@ -226,3 +226,8 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .ntag.ex{background:rgba(232,186,124,.22);color:#f3d29d}
 .ndek{font-size:.8rem;color:var(--muted);margin-top:.15rem;line-height:1.35}
 #holdNews{max-height:520px;overflow-y:auto}
+
+.wx-place{text-decoration:underline dotted;text-underline-offset:2px;cursor:pointer}
+.wx-src{opacity:.7;font-size:.9em}
+.city-res{list-style:none;margin:0;padding:0;display:grid;gap:.2rem;max-height:240px;overflow:auto}
+.city-res button{font:inherit;width:100%;text-align:left;background:rgba(4,20,34,.35);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:.45rem .6rem;cursor:pointer}
