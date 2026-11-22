@@ -326,7 +326,7 @@ function renderTravel(trips) {
     return `<div class="trip"><div class="trip-h"><b>${esc(t.title)}</b><span class="count">${esc(when)}</span></div>
       <div class="small muted">${esc(fmtDay(t.start))} – ${esc(fmtDay(t.end, { month: "short", day: "numeric", year: t.end.slice(0, 4) !== t.start.slice(0, 4) ? "numeric" : undefined }))}</div>
       <ul class="legs">${t.items.map((i) => `<li class="leg"><span class="when">${esc(fmtDay(i.date))}</span> ${ico[i.type] || "•"} ${esc(i.label)}
-        <div class="meta">${esc(i.time || "")}${i.seat ? " · seat " + esc(i.seat) : ""}${i.conf ? " · conf " + esc(i.conf) : ""}</div></li>`).join("")}</ul></div>`;
+        <div class="meta">${esc(i.time || "")}${i.seat ? " · seat " + esc(i.seat) : ""}${i.conf ? " · conf " + esc(i.conf) : ""}</div>${i.lounge ? `<div class="lounge">${esc(i.lounge)}</div>` : ""}</li>`).join("")}</ul></div>`;
   }).join("");
 }
 function renderNotifs(n) {
@@ -615,7 +615,7 @@ function renderSuggestions(a) {
 /* ---------------- stay on the latest deploy ----------------
    index.html loads app.js?v=<APP_VERSION>; version.json is fetched uncached on open/foreground and if the
    deployed version differs we reload once (also when a new service worker takes control). */
-const APP_VERSION = "2026-11-21.5";
+const APP_VERSION = "2026-11-21.6";
 async function checkVersion() {
   try {
     const { v } = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
