@@ -67,12 +67,14 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 @media (min-width:860px){
   .grid{grid-template-columns:repeat(6,1fr)}
   .plans{grid-column:span 3}.travel{grid-column:span 3}
+  .denver{grid-column:span 6}
   .markets{grid-column:span 3}.notif{grid-column:span 3}
   .news{grid-column:span 4}.money{grid-column:span 2}
   .adeline{grid-column:span 6}
 }
 @media (min-width:1200px){
   .plans{grid-column:span 2}.travel{grid-column:span 2}.notif{grid-column:span 2}
+  .denver{grid-column:span 6}
   .markets{grid-column:span 3}.news{grid-column:span 3}
   .money{grid-column:span 4}.adeline{grid-column:span 2}
 }
@@ -252,3 +254,10 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:.2rem 0 .35rem}
 .wx-src{opacity:.7;font-size:.9em}
 .city-res{list-style:none;margin:0;padding:0;display:grid;gap:.2rem;max-height:240px;overflow:auto}
 .city-res button{font:inherit;width:100%;text-align:left;background:rgba(4,20,34,.35);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:.45rem .6rem;cursor:pointer}
+
+/* denver move */
+#denverAddDate{max-width:10.2rem;color-scheme:dark}
+.dgroup{list-style:none;margin:.55rem 0 .05rem;padding:.35rem 0 0;border-top:1px solid var(--line);font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.dgroup:first-child{border-top:0;margin-top:0;padding-top:0}
+.dgroup.today{color:var(--accent2)}
+.dgroup.overdue{color:var(--warn)}

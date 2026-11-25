@@ -136,6 +136,7 @@ async function boot(user) {
   $("#auth").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   setupPlans();
+  setupDenver();
   setMktView(mktView);
   weather(false); // never gated on the data loads (one failed load used to stop weather from ever starting)
   await Promise.allSettled([loadDigest(), loadPlans(), loadCredits(), loadHoldings(), loadMarkets(), loadFx()]);
@@ -233,7 +234,8 @@ $("#cityAuto").onclick = () => { localStorage.removeItem("maree_loc_manual"); $(
 $("#cityCancel").onclick = () => $("#cityModal").classList.add("hidden");
 
 /* ---------------- plans ---------------- */
-let planKind = "todo", plans = [], showDone = false;
+let planKind = "todo", plans = [], showDone = false, showDenverDone = false;
+function renderPlanLists() { renderPlans(); renderDenver(); }
 function setupPlans() {
   document.querySelectorAll("#plansCard .seg button").forEach((b) => b.onclick = () => {
     planKind = b.dataset.kind; document.querySelectorAll("#plansCard .seg button").forEach((x) => x.classList.toggle("on", x === b));
@@ -244,7 +246,7 @@ function setupPlans() {
     const text = $("#addInput").value.trim(); if (!text) return;
     $("#addInput").value = "";
     const row = { kind: planKind, text, source: "manual", due_date: todayISO() };
-    plans.push({ ...row, id: "tmp" + Date.now(), done: false, created_at: new Date().toISOString() }); renderPlans();
+    plans.push({ ...row, id: "tmp" + Date.now(), done: false, created_at: new Date().toISOString() }); renderPlanLists();
     const { error } = await sb.from("plans").insert(row);
     if (error) toast("Couldn't save: " + error.message);
     loadPlans();
@@ -253,10 +255,15 @@ function setupPlans() {
 }
 async function loadPlans() {
   await sb.rpc("roll_unfinished").then(() => {}, () => {});
-  const { data, error } = await sb.from("plans").select("*").or(`done.eq.false,done_at.gte."${new Date(Date.now() - 2 * 86400000).toISOString()}"`)
+  const { data, error } = await sb.from("plans").select("*").or(`done.eq.false,done_at.gte."${new Date(Date.now() - 2 * 86400000).toISOString()}",kind.eq.denver`)
     .order("done").order("sort").order("created_at");
-  if (error) { $("#planList").innerHTML = `<li class="empty">Couldn't load plans.</li>`; return; }
-  plans = data; renderPlans();
+  if (error) {
+    $("#planList").innerHTML = `<li class="empty">Couldn't load plans.</li>`;
+    if ($("#denverList")) $("#denverList").innerHTML = `<li class="empty">Couldn't load to-dos.</li>`;
+    $("#denverCard")?.classList.remove("hidden");
+    return;
+  }
+  plans = data; renderPlanLists();
 }
 function renderPlans() {
   const t = todayISO();
@@ -287,16 +294,84 @@ function renderPlans() {
   $("#showDone").textContent = done.length ? (showDone ? "Hide finished" : `Show finished (${done.length})`) : "";
 }
 async function toggleDone(p) {
-  const done = !p.done; p.done = done; renderPlans();
+  const done = !p.done; p.done = done; renderPlanLists();
   const { error } = await sb.from("plans").update({ done, done_at: done ? new Date().toISOString() : null }).eq("id", p.id);
-  if (error) { toast("Couldn't update"); p.done = !done; renderPlans(); return; }
+  if (error) { toast("Couldn't update"); p.done = !done; renderPlanLists(); return; }
   if (done) toast("Done ✓", { label: "Undo", fn: () => toggleDone(p) });
 }
 async function removePlan(p) {
-  plans = plans.filter((x) => x !== p); renderPlans();
+  plans = plans.filter((x) => x !== p); renderPlanLists();
   const { error } = await sb.from("plans").delete().eq("id", p.id);
   if (error) { toast("Couldn't delete"); loadPlans(); return; }
   toast("Deleted", { label: "Undo", fn: async () => { const { id, ...rest } = p; await sb.from("plans").insert({ ...rest }); loadPlans(); } });
+}
+
+
+function denverLabel(p) {
+  return p.due_label || (p.due_date ? fmtDay(p.due_date, { weekday: "short", month: "short", day: "numeric" }) : "Anytime");
+}
+function setupDenver() {
+  const form = $("#denverAddForm");
+  if (!form) return;
+  const date = $("#denverAddDate");
+  if (date && !date.value) date.value = todayISO();
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const text = $("#denverAddInput").value.trim(); if (!text) return;
+    $("#denverAddInput").value = "";
+    const due = ($("#denverAddDate").value || todayISO());
+    const row = { kind: "denver", text, source: "manual", created_by: me?.email || "manual", due_date: due, due_label: fmtDay(due, { weekday: "short", month: "short", day: "numeric" }), sort: 50 };
+    plans.push({ ...row, id: "tmp" + Date.now(), done: false, created_at: new Date().toISOString() }); renderPlanLists();
+    const { error } = await sb.from("plans").insert(row);
+    if (error) toast("Couldn't save: " + error.message);
+    loadPlans();
+  };
+  $("#denverShowDone").onclick = () => { showDenverDone = !showDenverDone; renderDenver(); };
+}
+function renderDenver() {
+  const card = $("#denverCard"), ul = $("#denverList");
+  if (!card || !ul) return;
+  const mine = plans.filter((p) => p.kind === "denver").slice()
+    .sort((a, b) => (a.due_date || "9999").localeCompare(b.due_date || "9999") || (a.sort || 0) - (b.sort || 0) || (a.created_at || "").localeCompare(b.created_at || ""));
+  if (!mine.length) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  const t = todayISO();
+  const open = mine.filter((p) => !p.done), done = mine.filter((p) => p.done);
+  const list = showDenverDone ? mine : open;
+  const lastDue = mine.map((p) => p.due_date).filter(Boolean).sort().at(-1);
+  $("#denverMeta").textContent = `${open.length} open · ${mine.length} total` + (lastDue ? ` · through ${fmtDay(lastDue, { month: "short", day: "numeric" })}` : "");
+  ul.innerHTML = list.length ? "" : `<li class="empty">All caught up on the Denver move list.</li>`;
+  let lastLabel = null;
+  for (const p of list) {
+    const label = denverLabel(p);
+    if (label !== lastLabel) {
+      lastLabel = label;
+      const group = list.filter((x) => denverLabel(x) === label);
+      const due = p.due_date;
+      const h = document.createElement("li");
+      h.className = "dgroup" + (due === t ? " today" : (due && due < t && group.some((x) => !x.done) ? " overdue" : ""));
+      h.textContent = label;
+      ul.append(h);
+    }
+    const li = document.createElement("li"); li.className = "plan" + (p.done ? " done" : "");
+    const dueTag = !p.done && p.due_date === t ? `<span class="tag" title="Due today">today</span>` : (!p.done && p.due_date && p.due_date < t ? `<span class="tag" title="Past its date">overdue</span>` : "");
+    li.innerHTML = `<button class="check" aria-label="${p.done ? "Mark not done" : "Mark done"}">✓</button>
+      <span class="ptext" tabindex="0">${esc(p.text)}</span>
+      ${dueTag}
+      <button class="del" aria-label="Delete">✕</button>`;
+    const txt = li.querySelector(".ptext");
+    li.querySelector(".check").onclick = () => toggleDone(p);
+    li.querySelector(".del").onclick = () => removePlan(p);
+    txt.ondblclick = txt.onclick = () => { if (String(p.id).startsWith("tmp")) return; txt.contentEditable = "true"; txt.focus(); };
+    txt.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); txt.blur(); } if (e.key === "Escape") { txt.textContent = p.text; txt.blur(); } };
+    txt.onblur = async () => {
+      txt.contentEditable = "false"; const v = txt.textContent.trim();
+      if (v && v !== p.text) { p.text = v; const { error } = await sb.from("plans").update({ text: v }).eq("id", p.id); if (error) toast("Couldn't save edit"); }
+      else txt.textContent = p.text;
+    };
+    ul.append(li);
+  }
+  $("#denverShowDone").textContent = done.length ? (showDenverDone ? "Hide finished" : `Show finished (${done.length})`) : "";
 }
 
 /* ---------------- digest (morning run) ---------------- */
@@ -615,7 +690,7 @@ function renderSuggestions(a) {
 /* ---------------- stay on the latest deploy ----------------
    index.html loads app.js?v=<APP_VERSION>; version.json is fetched uncached on open/foreground and if the
    deployed version differs we reload once (also when a new service worker takes control). */
-const APP_VERSION = "2026-11-21.6";
+const APP_VERSION = "2026-11-24.1";
 async function checkVersion() {
   try {
     const { v } = await fetch("version.json?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
